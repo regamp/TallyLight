@@ -117,7 +117,7 @@ esp_err_t root_handler(httpd_req_t* request) {
     if (netif) esp_netif_get_ip_info(netif, &ip_info);
 
     std::string page = R"HTML(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tally Light setup</title><style>
-body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}header{background:#163f3a;color:#fff;padding:18px max(20px,calc((100% - 780px)/2))}main{max-width:780px;margin:24px auto;padding:0 16px}section{border-top:1px solid #b8c8c2;padding:14px 0}h1{font-size:24px;margin:0}h2{font-size:17px}form{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}label{display:grid;gap:5px;font-size:14px}input,select{box-sizing:border-box;width:100%;padding:9px;border:1px solid #9aaca6;border-radius:4px;background:white;color:#182b2a}input[type=checkbox]{width:auto}button{padding:10px 16px;background:#b7482d;color:white;border:0;border-radius:4px;font-weight:700;cursor:pointer}small{color:#536963}@media(max-width:500px){main{margin:12px auto}}
+body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}header{background:#163f3a;color:#fff;padding:18px max(20px,calc((100% - 780px)/2))}main{max-width:780px;margin:24px auto;padding:0 16px}section{border-top:1px solid #b8c8c2;padding:14px 0}h1{font-size:24px;margin:0}h2{font-size:17px}form{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}label{display:grid;gap:5px;font-size:14px}input,select{box-sizing:border-box;width:100%;padding:9px;border:1px solid #9aaca6;border-radius:4px;background:white;color:#182b2a}input[type=range]{padding:0;accent-color:#b7482d}input[type=checkbox]{width:auto}button{padding:10px 16px;background:#b7482d;color:white;border:0;border-radius:4px;font-weight:700;cursor:pointer}small{color:#536963}@media(max-width:500px){main{margin:12px auto}}
 </style></head><body><header><h1>Tally Light setup</h1></header><main>)HTML";
     page += "<section><h2>Status</h2><p>Device IP: " + ip_to_string(ip_info.ip.addr) + "</p>";
     page += "<p>Wi-Fi: " + html_escape(tally_settings.wifi_ssid) + "</p>";
@@ -141,20 +141,6 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
         page += "<p>LiPo monitoring: Disabled</p>";
     }
     page += "</section>";
-    page += "<section><h2>DEBUG tally source</h2><form action='/debug' method='post'>";
-    page += "<input type='hidden' name='enabled' value='false'><label><span>Enable DEBUG tally mode</span><input name='enabled' type='checkbox' value='true'";
-    if (tally_debug_is_enabled()) page += " checked";
-    page += "></label>";
-    page += "<label>Test tally number (1-41)<input name='number' type='number' min='1' max='41' value='" +
-            std::to_string(tally_debug_tally_number()) + "' required></label>";
-    page += "<label>Test tally state<select name='state'>";
-    const char* debug_states[] = {"Off", "Preview", "Program"};
-    for (uint8_t state = 0; state < 3; ++state) {
-        page += "<option value='" + std::to_string(state) + "'";
-        if (tally_debug_state() == state) page += " selected";
-        page += ">" + std::string(debug_states[state]) + "</option>";
-    }
-    page += "</select></label><button type='submit'>Apply DEBUG tally</button></form></section>";
     page += "<form action='/save' method='post'><section><h2>Device</h2>";
     page += field("Tally Light name", "tName", tally_settings.device_name, "text", 31);
     page += "<label>Tally number (1-41)<input name='tNo' type='number' min='1' max='41' value='" +
@@ -166,8 +152,11 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     page += "<label>Neopixel count<input name='neoPxAmount' type='number' min='0' max='1000' value='" +
             std::to_string(tally_settings.neopixel_count) + "' required></label>";
     page += select_field("Status LED position", "neoPxStatus", tally_settings.neopixel_status, false);
-    page += "<label>Neopixel brightness<input name='neoPxBright' type='number' min='0' max='255' value='" +
-            std::to_string(tally_settings.neopixel_brightness) + "' required></label>";
+        page += "<label>Neopixel brightness <output id='neoPxBrightValue'>" +
+            std::to_string(tally_settings.neopixel_brightness) +
+            "</output><input name='neoPxBright' type='range' min='0' max='255' value='" +
+            std::to_string(tally_settings.neopixel_brightness) +
+            "' oninput=\"document.getElementById('neoPxBrightValue').value=this.value\" required></label>";
     page += "<label>WS2812B colour order<select name='neoPxOrder'>";
     const char* color_orders[] = {"GRB", "RGB", "BRG", "RBG", "BGR", "GBR"};
     for (uint8_t order = 0; order < 6; ++order) {
@@ -208,7 +197,22 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     page += field("Tally IP", "tIP", ip_to_string(tally_settings.tally_ip).c_str(), "text", 15);
     page += field("Subnet mask", "mask", ip_to_string(tally_settings.subnet_mask).c_str(), "text", 15);
     page += field("Gateway", "gate", ip_to_string(tally_settings.gateway_ip).c_str(), "text", 15);
-    page += "</section><button type='submit'>Save and restart</button></form><small>Setup page served by the tally light.</small></main></body></html>";
+    page += "</section><button type='submit'>Save and restart</button></form>";
+    page += "<section><h2>DEBUG tally source</h2><form action='/debug' method='post'>";
+    page += "<input type='hidden' name='enabled' value='false'><label><span>Enable DEBUG tally mode</span><input name='enabled' type='checkbox' value='true'";
+    if (tally_debug_is_enabled()) page += " checked";
+    page += "></label>";
+    page += "<label>Test tally number (1-41)<input name='number' type='number' min='1' max='41' value='" +
+            std::to_string(tally_debug_tally_number()) + "' required></label>";
+    page += "<label>Test tally state<select name='state'>";
+    const char* debug_states[] = {"Off", "Preview", "Program"};
+    for (uint8_t state = 0; state < 3; ++state) {
+        page += "<option value='" + std::to_string(state) + "'";
+        if (tally_debug_state() == state) page += " selected";
+        page += ">" + std::string(debug_states[state]) + "</option>";
+    }
+    page += "</select></label><button type='submit'>Apply DEBUG tally</button></form></section>";
+    page += "<small>Setup page served by the tally light.</small></main></body></html>";
 
     httpd_resp_set_type(request, "text/html; charset=utf-8");
     return httpd_resp_send(request, page.c_str(), page.size());
