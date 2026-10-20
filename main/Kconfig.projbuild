@@ -1,0 +1,36 @@
+menu "ATEM tally light"
+
+config TALLY_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+
+config TALLY_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+
+config TALLY_SWITCHER_IP
+    string "ATEM switcher IPv4 address"
+    default "192.168.1.10"
+
+config TALLY_SOURCE_NUMBER
+    int "Tally source number (1-based)"
+    range 1 41
+    default 1
+
+config TALLY_LED1_MODE
+    int "LED 1 mode: 1 normal, 2 preview-on, 3 program-only, 4 on-air"
+    range 1 4
+    default 1
+
+config TALLY_LED2_MODE
+    int "LED 2 mode: 1 normal, 2 preview-on, 3 program-only, 4 on-air"
+    range 1 4
+    default 1
+
+config TALLY_NEOPIXEL_GPIO
+    int "Addressable LED strip GPIO"
+    range 0 48
+    default 4 if IDF_TARGET_ESP32C3
+    default 13
+
+endmenu
