@@ -34,9 +34,9 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/include/cmake_install.cmake")
-  include("/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/3rdparty/cmake_install.cmake")
-  include("/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/cmake_install.cmake")
+  include("/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/include/cmake_install.cmake")
+  include("/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/3rdparty/cmake_install.cmake")
+  include("/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/cmake_install.cmake")
 
 endif()
 

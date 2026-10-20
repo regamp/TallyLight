@@ -33,14 +33,14 @@ if(NOT DEFINED CMAKE_CROSSCOMPILING)
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/libmbedcrypto.a")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/libmbedcrypto.a")
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/libmbedx509.a")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/libmbedx509.a")
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/libmbedtls.a")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib" TYPE STATIC_LIBRARY FILES "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/esp-idf/mbedtls/mbedtls/library/libmbedtls.a")
 endif()
 

@@ -11,7 +11,7 @@ The output was:
 
 Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "a.out"
 
-The C compiler identification is GNU, found in "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/3.16.4/CompilerIdC/a.out"
+The C compiler identification is GNU, found in "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/3.16.4/CompilerIdC/a.out"
 
 Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
 Compiler: /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-g++ 
@@ -24,7 +24,7 @@ The output was:
 
 Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "a.out"
 
-The CXX compiler identification is GNU, found in "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/3.16.4/CompilerIdCXX/a.out"
+The CXX compiler identification is GNU, found in "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/3.16.4/CompilerIdCXX/a.out"
 
 Checking whether the ASM compiler is GNU using "--version" matched "(GNU assembler)|(GCC)|(Free Software Foundation)":
 riscv32-esp-elf-gcc (crosstool-NG esp-2022r1) 11.2.0
@@ -33,18 +33,18 @@ This is free software; see the source for copying conditions.  There is NO
 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 Determining if the C compiler works passed with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_c4079 && [1/2] Building C object CMakeFiles/cmTC_c4079.dir/testCCompiler.c.obj
-[2/2] Linking C executable cmTC_c4079
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_724d7 && [1/2] Building C object CMakeFiles/cmTC_724d7.dir/testCCompiler.c.obj
+[2/2] Linking C executable cmTC_724d7
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010054
 
 
 
 Detecting C compiler ABI info compiled with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_11350 && [1/2] Building C object CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_1c66c && [1/2] Building C object CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj
 Using built-in specs.
 COLLECT_GCC=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-gcc
 Target: riscv32-esp-elf
@@ -52,8 +52,8 @@ Configured with: /builds/idf/crosstool-NG/.build/riscv32-esp-elf/src/gcc/configu
 Thread model: posix
 Supported LTO compression algorithms: zlib
 gcc version 11.2.0 (crosstool-NG esp-2022r1) 
-COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_11350.dir/'
- /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1 -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_11350.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/ccWhAJCd.s
+COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_1c66c.dir/'
+ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1 -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_1c66c.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/ccbY3ni5.s
 GNU C17 (crosstool-NG esp-2022r1) version 11.2.0 (riscv32-esp-elf)
 	compiled by GNU C version 4.9.2, GMP version 6.2.1, MPFR version 4.1.0, MPC version 1.2.1, isl version isl-0.24-GMP
 
@@ -74,13 +74,13 @@ GNU C17 (crosstool-NG esp-2022r1) version 11.2.0 (riscv32-esp-elf)
 
 GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
 Compiler executable checksum: 2c893a2d0403526ba364a19f0a0bc11a
-COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_11350.dir/'
- /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj /tmp/ccWhAJCd.s
+COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_1c66c.dir/'
+ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj /tmp/ccbY3ni5.s
 GNU assembler version 2.35.1 (riscv32-esp-elf) using BFD version (crosstool-NG esp-2022r1) 2.35.1.20201223
 COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/
 LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/
-COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.'
-[2/2] Linking C executable cmTC_11350
+COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.'
+[2/2] Linking C executable cmTC_1c66c
 Using built-in specs.
 Reading specs from /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/nosys.specs
 rename spec link_gcc_c_sequence to nosys_link_gcc_c_sequence
@@ -93,10 +93,10 @@ Supported LTO compression algorithms: zlib
 gcc version 11.2.0 (crosstool-NG esp-2022r1) 
 COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/
 LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/
-COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_11350' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_11350.'
- /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/ccr233rP.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_11350 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group
+COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_1c66c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_1c66c.'
+ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/ccr40VS2.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_1c66c -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010054
-COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_11350' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_11350.'
+COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_1c66c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_1c66c.'
 
 
 
@@ -117,9 +117,9 @@ Parsed C implicit include dir info from above output: rv=done
 
 Parsed C implicit link information from above output:
   link line regex: [^( *|.*[/\])(riscv32-esp-elf-ld|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\]+-)?ld|collect2)[^/\]*( |$)]
-  ignore line: [Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp]
+  ignore line: [Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp]
   ignore line: []
-  ignore line: [Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_11350 && [1/2] Building C object CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj]
+  ignore line: [Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_1c66c && [1/2] Building C object CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj]
   ignore line: [Using built-in specs.]
   ignore line: [COLLECT_GCC=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-gcc]
   ignore line: [Target: riscv32-esp-elf]
@@ -127,8 +127,8 @@ Parsed C implicit link information from above output:
   ignore line: [Thread model: posix]
   ignore line: [Supported LTO compression algorithms: zlib]
   ignore line: [gcc version 11.2.0 (crosstool-NG esp-2022r1) ]
-  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_11350.dir/']
-  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1 -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_11350.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/ccWhAJCd.s]
+  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_1c66c.dir/']
+  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1 -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_1c66c.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/ccbY3ni5.s]
   ignore line: [GNU C17 (crosstool-NG esp-2022r1) version 11.2.0 (riscv32-esp-elf)]
   ignore line: [	compiled by GNU C version 4.9.2  GMP version 6.2.1  MPFR version 4.1.0  MPC version 1.2.1  isl version isl-0.24-GMP]
   ignore line: []
@@ -149,13 +149,13 @@ Parsed C implicit link information from above output:
   ignore line: []
   ignore line: [GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072]
   ignore line: [Compiler executable checksum: 2c893a2d0403526ba364a19f0a0bc11a]
-  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_11350.dir/']
-  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj /tmp/ccWhAJCd.s]
+  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_1c66c.dir/']
+  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj /tmp/ccbY3ni5.s]
   ignore line: [GNU assembler version 2.35.1 (riscv32-esp-elf) using BFD version (crosstool-NG esp-2022r1) 2.35.1.20201223]
   ignore line: [COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/]
   ignore line: [LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/]
-  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.']
-  ignore line: [[2/2] Linking C executable cmTC_11350]
+  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.']
+  ignore line: [[2/2] Linking C executable cmTC_1c66c]
   ignore line: [Using built-in specs.]
   ignore line: [Reading specs from /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/nosys.specs]
   ignore line: [rename spec link_gcc_c_sequence to nosys_link_gcc_c_sequence]
@@ -168,13 +168,13 @@ Parsed C implicit link information from above output:
   ignore line: [gcc version 11.2.0 (crosstool-NG esp-2022r1) ]
   ignore line: [COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/]
   ignore line: [LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/]
-  ignore line: [COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_11350' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_11350.']
-  link line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/ccr233rP.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_11350 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group]
+  ignore line: [COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_1c66c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_1c66c.']
+  link line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/ccr40VS2.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_1c66c -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group]
     arg [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2] ==> ignore
     arg [-plugin] ==> ignore
     arg [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so] ==> ignore
     arg [-plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper] ==> ignore
-    arg [-plugin-opt=-fresolution=/tmp/ccr233rP.res] ==> ignore
+    arg [-plugin-opt=-fresolution=/tmp/ccr40VS2.res] ==> ignore
     arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
     arg [-plugin-opt=-pass-through=-lc] ==> ignore
     arg [-plugin-opt=-pass-through=-lnosys] ==> ignore
@@ -185,13 +185,13 @@ Parsed C implicit link information from above output:
     arg [-plugin-opt=-pass-through=-lnosys] ==> ignore
     arg [-melf32lriscv] ==> ignore
     arg [-o] ==> ignore
-    arg [cmTC_11350] ==> ignore
+    arg [cmTC_1c66c] ==> ignore
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib]
-    arg [CMakeFiles/cmTC_11350.dir/CMakeCCompilerABI.c.obj] ==> ignore
+    arg [CMakeFiles/cmTC_1c66c.dir/CMakeCCompilerABI.c.obj] ==> ignore
     arg [-lgcc] ==> lib [gcc]
     arg [-lc] ==> lib [c]
     arg [-lnosys] ==> lib [nosys]
@@ -213,18 +213,18 @@ Parsed C implicit link information from above output:
 
 
 Determining if the CXX compiler works passed with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_85da2 && [1/2] Building CXX object CMakeFiles/cmTC_85da2.dir/testCXXCompiler.cxx.obj
-[2/2] Linking CXX executable cmTC_85da2
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_c93f2 && [1/2] Building CXX object CMakeFiles/cmTC_c93f2.dir/testCXXCompiler.cxx.obj
+[2/2] Linking CXX executable cmTC_c93f2
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010054
 
 
 
 Detecting CXX compiler ABI info compiled with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_5b91b && [1/2] Building CXX object CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_d350c && [1/2] Building CXX object CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj
 Using built-in specs.
 COLLECT_GCC=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-g++
 Target: riscv32-esp-elf
@@ -232,8 +232,8 @@ Configured with: /builds/idf/crosstool-NG/.build/riscv32-esp-elf/src/gcc/configu
 Thread model: posix
 Supported LTO compression algorithms: zlib
 gcc version 11.2.0 (crosstool-NG esp-2022r1) 
-COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_5b91b.dir/'
- /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1plus -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_5b91b.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/ccfCuKw6.s
+COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_d350c.dir/'
+ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1plus -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_d350c.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/cc9OWv0e.s
 GNU C++17 (crosstool-NG esp-2022r1) version 11.2.0 (riscv32-esp-elf)
 	compiled by GNU C version 4.9.2, GMP version 6.2.1, MPFR version 4.1.0, MPC version 1.2.1, isl version isl-0.24-GMP
 
@@ -260,13 +260,13 @@ GNU C++17 (crosstool-NG esp-2022r1) version 11.2.0 (riscv32-esp-elf)
 
 GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
 Compiler executable checksum: fa55fd71a911d123b83a3532209fe1fc
-COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_5b91b.dir/'
- /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj /tmp/ccfCuKw6.s
+COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_d350c.dir/'
+ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj /tmp/cc9OWv0e.s
 GNU assembler version 2.35.1 (riscv32-esp-elf) using BFD version (crosstool-NG esp-2022r1) 2.35.1.20201223
 COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/
 LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/
-COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.'
-[2/2] Linking CXX executable cmTC_5b91b
+COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.'
+[2/2] Linking CXX executable cmTC_d350c
 Using built-in specs.
 Reading specs from /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/nosys.specs
 rename spec link_gcc_c_sequence to nosys_link_gcc_c_sequence
@@ -279,10 +279,10 @@ Supported LTO compression algorithms: zlib
 gcc version 11.2.0 (crosstool-NG esp-2022r1) 
 COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/
 LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/
-COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_5b91b' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_5b91b.'
- /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/cc1ysIvQ.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_5b91b -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj -lstdc++ -lm -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group
+COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_d350c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_d350c.'
+ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/ccnK105L.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_d350c -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj -lstdc++ -lm -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010054
-COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_5b91b' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_5b91b.'
+COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_d350c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_d350c.'
 
 
 
@@ -309,9 +309,9 @@ Parsed CXX implicit include dir info from above output: rv=done
 
 Parsed CXX implicit link information from above output:
   link line regex: [^( *|.*[/\])(riscv32-esp-elf-ld|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\]+-)?ld|collect2)[^/\]*( |$)]
-  ignore line: [Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp]
+  ignore line: [Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp]
   ignore line: []
-  ignore line: [Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_5b91b && [1/2] Building CXX object CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj]
+  ignore line: [Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_d350c && [1/2] Building CXX object CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj]
   ignore line: [Using built-in specs.]
   ignore line: [COLLECT_GCC=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-g++]
   ignore line: [Target: riscv32-esp-elf]
@@ -319,8 +319,8 @@ Parsed CXX implicit link information from above output:
   ignore line: [Thread model: posix]
   ignore line: [Supported LTO compression algorithms: zlib]
   ignore line: [gcc version 11.2.0 (crosstool-NG esp-2022r1) ]
-  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_5b91b.dir/']
-  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1plus -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_5b91b.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/ccfCuKw6.s]
+  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_d350c.dir/']
+  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/cc1plus -quiet -v -imultilib rv32imc/ilp32 -iprefix /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/ /home/bence/.platformio/packages/tool-cmake/share/cmake-3.16/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_d350c.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -march=rv32imc -mabi=ilp32 -march=rv32imc -version -o /tmp/cc9OWv0e.s]
   ignore line: [GNU C++17 (crosstool-NG esp-2022r1) version 11.2.0 (riscv32-esp-elf)]
   ignore line: [	compiled by GNU C version 4.9.2  GMP version 6.2.1  MPFR version 4.1.0  MPC version 1.2.1  isl version isl-0.24-GMP]
   ignore line: []
@@ -347,13 +347,13 @@ Parsed CXX implicit link information from above output:
   ignore line: []
   ignore line: [GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072]
   ignore line: [Compiler executable checksum: fa55fd71a911d123b83a3532209fe1fc]
-  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_5b91b.dir/']
-  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj /tmp/ccfCuKw6.s]
+  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_d350c.dir/']
+  ignore line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/as -v --traditional-format -march=rv32imc -march=rv32imc -mabi=ilp32 -o CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj /tmp/cc9OWv0e.s]
   ignore line: [GNU assembler version 2.35.1 (riscv32-esp-elf) using BFD version (crosstool-NG esp-2022r1) 2.35.1.20201223]
   ignore line: [COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/]
   ignore line: [LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/]
-  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.']
-  ignore line: [[2/2] Linking CXX executable cmTC_5b91b]
+  ignore line: [COLLECT_GCC_OPTIONS='-march=rv32imc' '-v' '-o' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj' '-c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.']
+  ignore line: [[2/2] Linking CXX executable cmTC_d350c]
   ignore line: [Using built-in specs.]
   ignore line: [Reading specs from /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/nosys.specs]
   ignore line: [rename spec link_gcc_c_sequence to nosys_link_gcc_c_sequence]
@@ -366,13 +366,13 @@ Parsed CXX implicit link information from above output:
   ignore line: [gcc version 11.2.0 (crosstool-NG esp-2022r1) ]
   ignore line: [COMPILER_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/]
   ignore line: [LIBRARY_PATH=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/:/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/]
-  ignore line: [COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_5b91b' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_5b91b.']
-  link line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/cc1ysIvQ.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_5b91b -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj -lstdc++ -lm -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group]
+  ignore line: [COLLECT_GCC_OPTIONS='-nostartfiles' '-march=rv32imc' '-specs=nosys.specs' '-v' '-o' 'cmTC_d350c' '-mabi=ilp32' '-march=rv32imc' '-dumpdir' 'cmTC_d350c.']
+  link line: [ /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2 -plugin /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so -plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper -plugin-opt=-fresolution=/tmp/ccnK105L.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lnosys -melf32lriscv -o cmTC_d350c -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0 -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc -L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj -lstdc++ -lm -lgcc -lc -lnosys -lc -lgcc --start-group -lgcc -lc -lnosys --end-group]
     arg [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/collect2] ==> ignore
     arg [-plugin] ==> ignore
     arg [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/liblto_plugin.so] ==> ignore
     arg [-plugin-opt=/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../libexec/gcc/riscv32-esp-elf/11.2.0/lto-wrapper] ==> ignore
-    arg [-plugin-opt=-fresolution=/tmp/cc1ysIvQ.res] ==> ignore
+    arg [-plugin-opt=-fresolution=/tmp/ccnK105L.res] ==> ignore
     arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
     arg [-plugin-opt=-pass-through=-lc] ==> ignore
     arg [-plugin-opt=-pass-through=-lnosys] ==> ignore
@@ -383,13 +383,13 @@ Parsed CXX implicit link information from above output:
     arg [-plugin-opt=-pass-through=-lnosys] ==> ignore
     arg [-melf32lriscv] ==> ignore
     arg [-o] ==> ignore
-    arg [cmTC_5b91b] ==> ignore
+    arg [cmTC_d350c] ==> ignore
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/rv32imc/ilp32]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib/rv32imc/ilp32]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc]
     arg [-L/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib] ==> dir [/home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/lib]
-    arg [CMakeFiles/cmTC_5b91b.dir/CMakeCXXCompilerABI.cpp.obj] ==> ignore
+    arg [CMakeFiles/cmTC_d350c.dir/CMakeCXXCompilerABI.cpp.obj] ==> ignore
     arg [-lstdc++] ==> lib [stdc++]
     arg [-lm] ==> lib [m]
     arg [-lgcc] ==> lib [gcc]
@@ -413,37 +413,37 @@ Parsed CXX implicit link information from above output:
 
 
 Determining if the include file sys/types.h exists passed with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_2deb7 && [1/2] Building C object CMakeFiles/cmTC_2deb7.dir/CheckIncludeFile.c.obj
-[2/2] Linking C executable cmTC_2deb7
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_fa4f3 && [1/2] Building C object CMakeFiles/cmTC_fa4f3.dir/CheckIncludeFile.c.obj
+[2/2] Linking C executable cmTC_fa4f3
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010054
 
 
 
 Determining if the include file stdint.h exists passed with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_cda66 && [1/2] Building C object CMakeFiles/cmTC_cda66.dir/CheckIncludeFile.c.obj
-[2/2] Linking C executable cmTC_cda66
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_5bbe6 && [1/2] Building C object CMakeFiles/cmTC_5bbe6.dir/CheckIncludeFile.c.obj
+[2/2] Linking C executable cmTC_5bbe6
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010054
 
 
 
 Determining if the include file stddef.h exists passed with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_f07a7 && [1/2] Building C object CMakeFiles/cmTC_f07a7.dir/CheckIncludeFile.c.obj
-[2/2] Linking C executable cmTC_f07a7
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_ee8a6 && [1/2] Building C object CMakeFiles/cmTC_ee8a6.dir/CheckIncludeFile.c.obj
+[2/2] Linking C executable cmTC_ee8a6
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010054
 
 
 
 Determining size of time_t passed with the following output:
-Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
+Change Dir: /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader/CMakeFiles/CMakeTmp
 
-Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_d752a && [1/2] Building C object CMakeFiles/cmTC_d752a.dir/TIME_T_SIZE.c.obj
-[2/2] Linking C executable cmTC_d752a
+Run Build Command(s):/home/bence/.platformio/packages/tool-ninja/ninja cmTC_04b93 && [1/2] Building C object CMakeFiles/cmTC_04b93.dir/TIME_T_SIZE.c.obj
+[2/2] Linking C executable cmTC_04b93
 /home/bence/.platformio/packages/toolchain-riscv32-esp/bin/../lib/gcc/riscv32-esp-elf/11.2.0/../../../../riscv32-esp-elf/bin/ld: warning: cannot find entry symbol _start; defaulting to 0000000000010074
 
 

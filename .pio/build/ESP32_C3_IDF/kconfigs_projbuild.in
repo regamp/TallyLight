@@ -3,4 +3,4 @@ source "/home/bence/.platformio/packages/framework-espidf/components/esp_app_for
 source "/home/bence/.platformio/packages/framework-espidf/components/esp_rom/Kconfig.projbuild"
 source "/home/bence/.platformio/packages/framework-espidf/components/esptool_py/Kconfig.projbuild"
 source "/home/bence/.platformio/packages/framework-espidf/components/partition_table/Kconfig.projbuild"
-source "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/main/Kconfig.projbuild"
+source "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/main/Kconfig.projbuild"

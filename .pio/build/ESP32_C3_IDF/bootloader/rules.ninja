@@ -270,7 +270,7 @@ rule C_STATIC_LIBRARY_LINKER____idf_main
 # Rule for re-running cmake.
 
 rule RERUN_CMAKE
-  command = /home/bence/.platformio/packages/tool-cmake/bin/cmake -S/home/bence/.platformio/packages/framework-espidf/components/bootloader/subproject -B/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader
+  command = /home/bence/.platformio/packages/tool-cmake/bin/cmake -S/home/bence/.platformio/packages/framework-espidf/components/bootloader/subproject -B/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader
   description = Re-running CMake...
   generator = 1
 

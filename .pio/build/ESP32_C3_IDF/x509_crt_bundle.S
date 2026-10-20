@@ -1,4 +1,4 @@
-/* * Data converted from /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/x509_crt_bundle
+/* * Data converted from /home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/x509_crt_bundle
  */
 .data
 .section .rodata.embedded

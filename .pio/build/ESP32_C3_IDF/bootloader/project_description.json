@@ -1,8 +1,8 @@
 {
     "project_name":       "bootloader",
     "project_path":       "/home/bence/.platformio/packages/framework-espidf/components/bootloader/subproject",
-    "build_dir":          "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/.pio/build/ESP32_C3_IDF/bootloader",
-    "config_file":        "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/sdkconfig.ESP32_C3_IDF",
+    "build_dir":          "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/.pio/build/ESP32_C3_IDF/bootloader",
+    "config_file":        "/home/bence/Dokumentumok/VSCode/ATEM_tally_light_with_ESP8266/ATEM_tally_light_with_ESP8266-master/esp-idf/TallyLight/sdkconfig.ESP32_C3_IDF",
     "config_defaults":    "",
     "bootloader_elf":     "",
     "app_elf":            "bootloader.elf",
