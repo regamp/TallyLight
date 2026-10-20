@@ -38,6 +38,7 @@ uint16_t tally_battery_update();
 uint16_t tally_battery_voltage_mv();
 bool tally_battery_is_low();
 const char* tally_atem_connection_status();
+void tally_refresh_outputs();
 void tally_debug_set_enabled(bool enabled);
 void tally_debug_set_test(uint8_t tally_number, uint8_t state);
 bool tally_debug_is_enabled();

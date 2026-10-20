@@ -293,6 +293,22 @@ bool parse_form(const char* body, TallySettings& settings) {
     return valid && settings.wifi_ssid[0] != '\0';
 }
 
+bool requires_restart(const TallySettings& old_settings, const TallySettings& new_settings) {
+    return strcmp(old_settings.device_name, new_settings.device_name) != 0 ||
+           strcmp(old_settings.wifi_ssid, new_settings.wifi_ssid) != 0 ||
+           strcmp(old_settings.wifi_password, new_settings.wifi_password) != 0 ||
+           strcmp(old_settings.switcher_ip, new_settings.switcher_ip) != 0 ||
+           old_settings.static_ip != new_settings.static_ip ||
+           old_settings.tally_ip != new_settings.tally_ip ||
+           old_settings.subnet_mask != new_settings.subnet_mask ||
+           old_settings.gateway_ip != new_settings.gateway_ip ||
+           old_settings.neopixel_count != new_settings.neopixel_count ||
+           old_settings.neopixel_status != new_settings.neopixel_status ||
+           old_settings.neopixel_gpio != new_settings.neopixel_gpio ||
+           old_settings.battery_monitor_enabled != new_settings.battery_monitor_enabled ||
+           old_settings.battery_adc_gpio != new_settings.battery_adc_gpio;
+}
+
 esp_err_t debug_handler(httpd_req_t* request) {
     if (request->method != HTTP_POST || request->content_len <= 0 || request->content_len > 128) {
         httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid DEBUG request");
@@ -356,7 +372,8 @@ esp_err_t save_handler(httpd_req_t* request) {
         received += static_cast<size_t>(length);
     }
 
-    TallySettings updated = tally_settings;
+    const TallySettings previous = tally_settings;
+    TallySettings updated = previous;
     if (!parse_form(body.c_str(), updated)) {
         httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid form values");
         return ESP_FAIL;
@@ -368,11 +385,18 @@ esp_err_t save_handler(httpd_req_t* request) {
         return result;
     }
 
-    httpd_resp_set_type(request, "text/html; charset=utf-8");
-    httpd_resp_sendstr(request, "<!doctype html><html><body><p>Settings saved. Restarting...</p></body></html>");
-    vTaskDelay(pdMS_TO_TICKS(500));
-    esp_restart();
-    return ESP_OK;
+    if (requires_restart(previous, updated)) {
+        httpd_resp_set_type(request, "text/html; charset=utf-8");
+        httpd_resp_sendstr(request, "<!doctype html><html><body><p>Settings saved. Restarting to apply hardware or network changes...</p></body></html>");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        esp_restart();
+        return ESP_OK;
+    }
+
+    tally_refresh_outputs();
+    httpd_resp_set_status(request, "303 See Other");
+    httpd_resp_set_hdr(request, "Location", "/");
+    return httpd_resp_send(request, nullptr, 0);
 }
 
 }  // namespace

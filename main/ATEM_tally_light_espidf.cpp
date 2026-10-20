@@ -503,6 +503,11 @@ const char* tally_atem_connection_status() {
     return "ATEM socket unavailable";
 }
 
+void tally_refresh_outputs() {
+    update_tally_leds();
+    if (strip_initialized) show_strip();
+}
+
 void tally_debug_set_enabled(bool enabled) {
     debug_mode.store(enabled);
     tally_settings.debug_mode_enabled = enabled;
