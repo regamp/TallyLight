@@ -35,6 +35,8 @@ constexpr uint8_t kMaxTallySources = 41;
 constexpr uint8_t kTallyProgram = 0x01;
 constexpr uint8_t kTallyPreview = 0x02;
 constexpr int kWifiConnected = BIT0;
+constexpr uint32_t kInitRequestRetryMs = 1000;
+constexpr uint8_t kInitRequestMaxAttempts = 3;
 
 enum class Color : uint8_t {
     Off,
@@ -70,6 +72,9 @@ bool soft_ap_active = false;
 bool web_server_started = false;
 bool init_payload_seen = false;
 bool waiting_for_init_packet = false;
+uint16_t requested_init_packet_id = 0;
+uint32_t init_request_sent_ms = 0;
+uint8_t init_request_attempts = 0;
 bool atem_initialized = false;
 uint16_t init_last_packet_id = 0;
 std::array<uint8_t, 6> missed_init_packets{};
@@ -273,6 +278,7 @@ void initialize_wifi() {
 
     wifi_init_config_t init_config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&init_config));
+    ESP_ERROR_CHECK(esp_wifi_set_ps(tally_settings.battery_monitor_enabled ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, nullptr));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, nullptr));
 
@@ -371,14 +377,44 @@ void process_atem_payload(const uint8_t* packet, size_t packet_size) {
 }
 
 void request_missing_initialization_packet() {
-    if (atem_initialized || !init_payload_seen || waiting_for_init_packet) return;
+    if (atem_initialized || !init_payload_seen) return;
+
+    if (waiting_for_init_packet) {
+        const bool packet_received =
+            (missed_init_packets[requested_init_packet_id >> 3] & (1U << (requested_init_packet_id & 7))) == 0;
+        if (packet_received) {
+            waiting_for_init_packet = false;
+            init_request_attempts = 0;
+        } else if (millis_now() - init_request_sent_ms >= kInitRequestRetryMs) {
+            if (init_request_attempts >= kInitRequestMaxAttempts) {
+                ESP_LOGW(kTag, "ATEM init packet %u did not arrive after %u retries; continuing",
+                         requested_init_packet_id, kInitRequestMaxAttempts);
+                missed_init_packets[requested_init_packet_id >> 3] &=
+                    static_cast<uint8_t>(~(1U << (requested_init_packet_id & 7)));
+                waiting_for_init_packet = false;
+                init_request_attempts = 0;
+            } else {
+                const uint16_t previous_id = requested_init_packet_id - 1;
+                send_atem_packet(0x08, 0, nullptr, 0, 0,
+                                 static_cast<uint8_t>(previous_id >> 8),
+                                 static_cast<uint8_t>(previous_id), 0x01);
+                init_request_sent_ms = millis_now();
+                ++init_request_attempts;
+            }
+        }
+        if (waiting_for_init_packet) return;
+    }
+
     for (uint16_t packet_id = 1; packet_id < init_last_packet_id && packet_id < 41; ++packet_id) {
         if (missed_init_packets[packet_id >> 3] & (1U << (packet_id & 7))) {
-            const uint16_t previous_id = packet_id - 1;
+            requested_init_packet_id = packet_id;
+            const uint16_t previous_id = requested_init_packet_id - 1;
             send_atem_packet(0x08, 0, nullptr, 0, 0,
                              static_cast<uint8_t>(previous_id >> 8),
                              static_cast<uint8_t>(previous_id), 0x01);
             waiting_for_init_packet = true;
+            init_request_sent_ms = millis_now();
+            init_request_attempts = 1;
             return;
         }
     }
@@ -426,7 +462,6 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size) {
         init_last_packet_id = remote_packet_id;
     }
     if (!(flags & 0x02) && packet_size > 12) process_atem_payload(packet, packet_size);
-    if (waiting_for_init_packet) waiting_for_init_packet = false;
     request_missing_initialization_packet();
 }
 
@@ -488,6 +523,7 @@ void run_atem_client() {
         atem_initialized = false;
         init_payload_seen = false;
         waiting_for_init_packet = false;
+        init_request_attempts = 0;
         missed_init_packets.fill(0xFF);
         set_state(2);
         send_hello();

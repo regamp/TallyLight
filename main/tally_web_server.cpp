@@ -484,6 +484,7 @@ esp_err_t tally_settings_save() {
 
 void tally_web_server_start() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.stack_size = 8192;
     config.max_uri_handlers = 5;
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
