@@ -25,10 +25,10 @@ LiPo monitoring can be enabled in the setup page. Configure the ADC GPIO, low-vo
 - ATEM UDP hello, acknowledgement, tally-by-index and streaming-status handling.
 - Addressable WS2812/Neopixel strip output with configurable tally and status LED positions.
 - Optional calibrated ADC LiPo monitoring, adjustable divider ratio/low-voltage threshold, and purple low-battery indication.
-- Web-controlled DEBUG tally source that sends Off, Preview, or Program to the local LEDs and connected UDP tally clients, overriding ATEM tally updates while enabled.
+- Web-controlled `Test_server` mode that sends Off, Preview, or Program to the local LEDs and connected UDP tally clients, overriding ATEM tally updates while enabled. While enabled, detailed ATEM UDP TX/RX headers, packet bytes, ACK/resend handling, and decoded `TlIn`/`StRS` status are logged to the serial monitor.
 - UDP tally relay on port 9910, with up to five clients, handshake, tally forwarding, ACK/retry, keepalive, and disconnect handling.
 - Improv Serial device info, Wi-Fi scan, state reporting, and Wi-Fi credential provisioning.
 
 The tally relay shares the same firmware with direct ATEM mode; clients connect to this unit at UDP port 9910. The ATEM client itself uses a separate ephemeral UDP source port. Configure network and LED wiring for your particular board before use.
 
-The DEBUG enable setting is persistent, but its selected tally number and Off/Preview/Program test state are volatile and start Off after reboot.
+The `Test_server` enable setting is persistent, but its selected tally number and Off/Preview/Program test state are volatile and start Off after reboot. Detailed ATEM logging is active only while `Test_server` is enabled.

@@ -123,10 +123,10 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     page += "<p>Wi-Fi: " + html_escape(tally_settings.wifi_ssid) + "</p>";
     page += "<p>ATEM switcher: " + html_escape(tally_settings.switcher_ip) + "</p>";
     page += "<p>ATEM connection: " + html_escape(tally_atem_connection_status()) + "</p>";
-    page += "<p>DEBUG tally: " + std::string(tally_debug_is_enabled() ? "Enabled" : "Disabled") + "</p>";
+    page += "<p>Test_server: " + std::string(tally_debug_is_enabled() ? "Enabled" : "Disabled") + "</p>";
     if (tally_debug_is_enabled()) {
         const char* debug_state_names[] = {"Off", "Preview", "Program"};
-        page += "<p>DEBUG source: " + std::to_string(tally_debug_tally_number()) + " / " +
+        page += "<p>Test_server tally: " + std::to_string(tally_debug_tally_number()) + " / " +
                 debug_state_names[tally_debug_state()] + "</p>";
     }
     if (tally_settings.battery_monitor_enabled) {
@@ -198,8 +198,8 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     page += field("Subnet mask", "mask", ip_to_string(tally_settings.subnet_mask).c_str(), "text", 15);
     page += field("Gateway", "gate", ip_to_string(tally_settings.gateway_ip).c_str(), "text", 15);
     page += "</section><button type='submit'>Save and restart</button></form>";
-    page += "<section><h2>DEBUG tally source</h2><form action='/debug' method='post'>";
-    page += "<input type='hidden' name='enabled' value='false'><label><span>Enable DEBUG tally mode</span><input name='enabled' type='checkbox' value='true'";
+    page += "<section><h2>Test_server</h2><form action='/debug' method='post'>";
+    page += "<input type='hidden' name='enabled' value='false'><label><span>Enable Test_server mode</span><input name='enabled' type='checkbox' value='true'";
     if (tally_debug_is_enabled()) page += " checked";
     page += "></label>";
     page += "<label>Test tally number (1-41)<input name='number' type='number' min='1' max='41' value='" +
@@ -211,7 +211,7 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
         if (tally_debug_state() == state) page += " selected";
         page += ">" + std::string(debug_states[state]) + "</option>";
     }
-    page += "</select></label><button type='submit'>Apply DEBUG tally</button></form></section>";
+    page += "</select></label><button type='submit'>Apply Test_server tally</button></form></section>";
     page += "<small>Setup page served by the tally light.</small></main></body></html>";
 
     httpd_resp_set_type(request, "text/html; charset=utf-8");

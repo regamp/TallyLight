@@ -547,7 +547,7 @@ C_COMPILER_SUPPORTS_WFORMAT_SIGNEDNESS:INTERNAL=1
 //Details about finding Git
 FIND_PACKAGE_MESSAGE_DETAILS_Git:INTERNAL=[/usr/bin/git][v2.56.0()]
 //Details about finding Python3
-FIND_PACKAGE_MESSAGE_DETAILS_Python3:INTERNAL=[/home/bence/.platformio/penv/.espidf-5.0.2/bin/python][cfound components: Interpreter ][v3.14.8()]
+FIND_PACKAGE_MESSAGE_DETAILS_Python3:INTERNAL=[/home/bence/.platformio/penv/.espidf-5.0.2/bin/python][cfound components: Interpreter ][v3.14.9()]
 //ADVANCED property for variable: GIT_EXECUTABLE
 GIT_EXECUTABLE-ADVANCED:INTERNAL=1
 //Have include stddef.h
