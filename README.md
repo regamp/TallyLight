@@ -22,13 +22,13 @@ LiPo monitoring can be enabled in the setup page. Configure the ADC GPIO, low-vo
 
 - Station-mode Wi-Fi connection and reconnect.
 - Native HTTP setup page and NVS settings persistence, including fallback setup access point.
-- ATEM UDP hello, acknowledgement, tally-by-index and streaming-status handling.
+- ATEM UDP hello, ordered packet processing, cumulative ACK batching and retry on send-memory pressure, retransmission-aware acknowledgements, stalled-sequence detection/reconnect, tally-by-index and streaming-status handling.
 - Addressable WS2812/Neopixel strip output with configurable tally and status LED positions.
 - Optional calibrated ADC LiPo monitoring, adjustable divider ratio/low-voltage threshold, and purple low-battery indication.
-- Web-controlled `Test_server` mode that sends Off, Preview, or Program to the local LEDs and connected UDP tally clients, overriding ATEM tally updates while enabled. While enabled, detailed ATEM UDP TX/RX headers, packet bytes, ACK/resend handling, and decoded `TlIn`/`StRS` status are logged to the serial monitor.
+- Independent web controls for `Debug mode` and `Test server`. Debug mode logs ATEM UDP TX/RX headers, a bounded packet-byte preview, packet/command sequence handling, and decoded `TlIn`/`StRS` status on the serial monitor. Packet diagnostics are batched and receive processing yields periodically to avoid starving the ESP-IDF idle task; UDP send errors include free-heap diagnostics, and persistent ACK send failures trigger reconnect. Test server sends Off, Preview, or Program to the local LEDs and connected UDP tally clients, overriding ATEM tally updates while enabled.
 - UDP tally relay on port 9910, with up to five clients, handshake, tally forwarding, ACK/retry, keepalive, and disconnect handling.
 - Improv Serial device info, Wi-Fi scan, state reporting, and Wi-Fi credential provisioning.
 
 The tally relay shares the same firmware with direct ATEM mode; clients connect to this unit at UDP port 9910. The ATEM client itself uses a separate ephemeral UDP source port. Configure network and LED wiring for your particular board before use.
 
-The `Test_server` enable setting is persistent, but its selected tally number and Off/Preview/Program test state are volatile and start Off after reboot. Detailed ATEM logging is active only while `Test_server` is enabled.
+The Debug mode and Test server enable settings are persistent and work independently without restarting the device. The Test server's selected tally number and Off/Preview/Program state are volatile and start Off after reboot.

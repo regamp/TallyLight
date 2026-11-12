@@ -1,6 +1,6 @@
-set(CMAKE_HOST_SYSTEM "Linux-7.2.9-arch1-1")
+set(CMAKE_HOST_SYSTEM "Linux-7.2.14-arch1-1")
 set(CMAKE_HOST_SYSTEM_NAME "Linux")
-set(CMAKE_HOST_SYSTEM_VERSION "7.2.9-arch1-1")
+set(CMAKE_HOST_SYSTEM_VERSION "7.2.14-arch1-1")
 set(CMAKE_HOST_SYSTEM_PROCESSOR "x86_64")
 
 include("/home/bence/.platformio/packages/framework-espidf/tools/cmake/toolchain-esp32c3.cmake")
