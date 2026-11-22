@@ -174,11 +174,11 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     page += "<label>Tally number (1-41)<input name='tNo' type='number' min='1' max='41' value='" +
             std::to_string(tally_settings.tally_number) + "' required></label>";
     page += select_field("LED 1 mode", "tModeLED1", tally_settings.led1_mode, true);
-    page += select_field("LED 2 mode", "tModeLED2", tally_settings.led2_mode, true);
     page += "</section>";
     page += "<section><h2>Addressable LED strip</h2>";
-    page += "<label>Neopixel count<input name='neoPxAmount' type='number' min='0' max='1000' value='" +
+    page += "<label>Neopixel count<input name='neoPxAmount' type='number' min='0' max='64' value='" +
             std::to_string(tally_settings.neopixel_count) + "' required></label>";
+    page += "<small>Maximum supported strip length is 64 LEDs.</small>";
     page += select_field("Status LED position", "neoPxStatus", tally_settings.neopixel_status, false);
         page += "<label>Neopixel brightness <output id='neoPxBrightValue'>" +
             std::to_string(tally_settings.neopixel_brightness) +
@@ -195,7 +195,7 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     page += "</select></label>";
         page += "<label>WS2812B data GPIO<input name='neoPxGPIO' type='number' min='0' max='" +
 #ifdef CONFIG_IDF_TARGET_ESP32C3
-                std::string("21")
+                std::string("17")
 #else
                 std::string("48")
 #endif
@@ -206,11 +206,14 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     page += "></label>";
     page += "<label>Battery ADC GPIO<input name='batteryGPIO' type='number' min='0' max='";
 #ifdef CONFIG_IDF_TARGET_ESP32C3
-    page += "21";
+    page += "4";
+#elif CONFIG_IDF_TARGET_ESP32S3
+    page += "10";
 #else
     page += "48";
 #endif
     page += "' value='" + std::to_string(tally_settings.battery_adc_gpio) + "' required></label>";
+    page += "<small>ESP32-C3 battery sensing uses ADC1 GPIO0-GPIO4.</small>";
     page += "<label>Low battery threshold (mV)<input name='batteryLowMv' type='number' min='2500' max='4500' value='" +
             std::to_string(tally_settings.battery_low_mv) + "' required></label>";
     page += "<label>Voltage divider ratio (e.g. 2.000)<input name='batteryScale' type='number' min='1000' max='10000' step='1' value='" +
@@ -260,7 +263,9 @@ bool url_decode(const char* input, std::string& output) {
             if (!isxdigit(static_cast<unsigned char>(input[index + 1])) ||
                 !isxdigit(static_cast<unsigned char>(input[index + 2]))) return false;
             char hex[] = {input[index + 1], input[index + 2], '\0'};
-            output += static_cast<char>(strtol(hex, nullptr, 16));
+            const char decoded = static_cast<char>(strtol(hex, nullptr, 16));
+            if (decoded == '\0') return false;
+            output += decoded;
             index += 2;
         } else {
             output += input[index];
@@ -269,7 +274,7 @@ bool url_decode(const char* input, std::string& output) {
     return true;
 }
 
-bool parse_form(const char* body, TallySettings& settings) {
+bool parse_form(const char* body, TallySettings& settings, std::string& validation_error) {
     char* copy = strdup(body);
     if (!copy) return false;
     bool valid = true;
@@ -285,28 +290,19 @@ bool parse_form(const char* body, TallySettings& settings) {
         if (key == "tName") strlcpy(settings.device_name, value.c_str(), sizeof(settings.device_name));
         else if (key == "tNo") settings.tally_number = static_cast<uint8_t>(std::clamp(atoi(value.c_str()), 1, 41));
         else if (key == "tModeLED1") settings.led1_mode = static_cast<uint8_t>(std::clamp(atoi(value.c_str()), 1, 4));
-        else if (key == "tModeLED2") settings.led2_mode = static_cast<uint8_t>(std::clamp(atoi(value.c_str()), 1, 4));
-        else if (key == "neoPxAmount") settings.neopixel_count = static_cast<uint16_t>(std::clamp(atoi(value.c_str()), 0, 1000));
+        else if (key == "neoPxAmount") settings.neopixel_count = static_cast<uint16_t>(std::clamp(atoi(value.c_str()), 0, 64));
         else if (key == "neoPxStatus") settings.neopixel_status = static_cast<uint8_t>(std::clamp(atoi(value.c_str()), 1, 3));
         else if (key == "neoPxBright") settings.neopixel_brightness = static_cast<uint8_t>(std::clamp(atoi(value.c_str()), 0, 255));
         else if (key == "neoPxOrder") settings.neopixel_color_order = static_cast<uint8_t>(std::clamp(atoi(value.c_str()), 0, 5));
         else if (key == "neoPxGPIO") {
-    #ifdef CONFIG_IDF_TARGET_ESP32C3
-            constexpr int max_gpio = 21;
-    #else
             constexpr int max_gpio = 48;
-    #endif
             const int gpio = atoi(value.c_str());
             if (gpio < 0 || gpio > max_gpio) valid = false;
             else settings.neopixel_gpio = static_cast<uint8_t>(gpio);
         }
         else if (key == "batteryEnabled") settings.battery_monitor_enabled = value == "true";
         else if (key == "batteryGPIO") {
-#ifdef CONFIG_IDF_TARGET_ESP32C3
-            constexpr int max_gpio = 21;
-#else
             constexpr int max_gpio = 48;
-#endif
             const int gpio = atoi(value.c_str());
             if (gpio < 0 || gpio > max_gpio) valid = false;
             else settings.battery_adc_gpio = static_cast<uint8_t>(gpio);
@@ -315,14 +311,61 @@ bool parse_form(const char* body, TallySettings& settings) {
         else if (key == "batteryScale") settings.battery_scale_milli = static_cast<uint16_t>(std::clamp(atoi(value.c_str()), 1000, 10000));
         else if (key == "ssid") strlcpy(settings.wifi_ssid, value.c_str(), sizeof(settings.wifi_ssid));
         else if (key == "pwd" && !value.empty()) strlcpy(settings.wifi_password, value.c_str(), sizeof(settings.wifi_password));
-        else if (key == "aIP") strlcpy(settings.switcher_ip, value.c_str(), sizeof(settings.switcher_ip));
+        else if (key == "aIP") {
+            in_addr address{};
+            if (inet_pton(AF_INET, value.c_str(), &address) != 1) {
+                validation_error = "Invalid IPv4 address for ATEM switcher";
+                valid = false;
+            } else {
+                strlcpy(settings.switcher_ip, value.c_str(), sizeof(settings.switcher_ip));
+            }
+        }
         else if (key == "staticIP") settings.static_ip = value == "true";
-        else if (key == "tIP") settings.tally_ip = inet_addr(value.c_str());
-        else if (key == "mask") settings.subnet_mask = inet_addr(value.c_str());
-        else if (key == "gate") settings.gateway_ip = inet_addr(value.c_str());
+        else if (key == "tIP" || key == "mask" || key == "gate") {
+            in_addr address{};
+            if (inet_pton(AF_INET, value.c_str(), &address) != 1) {
+                validation_error = key == "tIP" ? "Invalid IPv4 address for Tally IP" :
+                                   (key == "mask" ? "Invalid IPv4 subnet mask" :
+                                                    "Invalid IPv4 gateway address");
+                valid = false;
+            } else if (key == "tIP") settings.tally_ip = address.s_addr;
+            else if (key == "mask") settings.subnet_mask = address.s_addr;
+            else settings.gateway_ip = address.s_addr;
+        }
     }
     free(copy);
-    return valid && settings.wifi_ssid[0] != '\0';
+    if (valid && settings.wifi_ssid[0] == '\0') {
+        validation_error = "Wi-Fi SSID cannot be empty";
+        valid = false;
+    }
+    return valid;
+}
+
+bool valid_settings_gpios(const TallySettings& settings, std::string& validation_error) {
+#if CONFIG_IDF_TARGET_ESP32C3
+    if (settings.neopixel_gpio > 21) {
+        validation_error = "ESP32-C3 LED GPIO must be between 0 and 21";
+        return false;
+    }
+    if (settings.neopixel_gpio >= 18 && settings.neopixel_gpio <= 21) {
+        validation_error = "ESP32-C3 LED GPIO must not be 18, 19, 20, or 21";
+        return false;
+    }
+    if (settings.battery_adc_gpio > 4) {
+        validation_error = "ESP32-C3 battery ADC must use ADC1 GPIO0-GPIO4";
+        return false;
+    }
+#elif CONFIG_IDF_TARGET_ESP32S3
+    if (settings.battery_adc_gpio < 1 || settings.battery_adc_gpio > 10) {
+        validation_error = "ESP32-S3 battery ADC must use ADC1 GPIO1-GPIO10";
+        return false;
+    }
+#endif
+    if (settings.neopixel_gpio == settings.battery_adc_gpio) {
+        validation_error = "LED and battery ADC GPIOs must be different";
+        return false;
+    }
+    return true;
 }
 
 bool requires_restart(const TallySettings& old_settings, const TallySettings& new_settings) {
@@ -379,8 +422,8 @@ esp_err_t debug_logging_handler(httpd_req_t* request) {
 
     const esp_err_t result = tally_debug_logging_set_enabled(enabled);
     if (result != ESP_OK) {
-        ESP_LOGE(kTag, "Could not save Debug mode setting: %s", esp_err_to_name(result));
-        httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not save Debug mode setting");
+        ESP_LOGE(kTag, "Could not change Debug mode: %s", esp_err_to_name(result));
+        httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not change Debug mode");
         return result;
     }
 
@@ -464,13 +507,25 @@ esp_err_t save_handler(httpd_req_t* request) {
 
     const TallySettings previous = tally_settings;
     TallySettings updated = previous;
-    if (!parse_form(body.c_str(), updated)) {
-        httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid form values");
+    std::string validation_error;
+    if (!parse_form(body.c_str(), updated, validation_error)) {
+        if (validation_error.empty()) validation_error = "Invalid form values";
+        httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, validation_error.c_str());
+        return ESP_FAIL;
+    }
+    if (!valid_settings_gpios(updated, validation_error)) {
+        httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, validation_error.c_str());
+        return ESP_FAIL;
+    }
+    in_addr switcher_address{};
+    if (inet_pton(AF_INET, updated.switcher_ip, &switcher_address) != 1) {
+        httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid IPv4 address for ATEM switcher");
         return ESP_FAIL;
     }
     tally_settings = updated;
     const esp_err_t result = tally_settings_save();
     if (result != ESP_OK) {
+        tally_settings = previous;
         httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not save settings");
         return result;
     }
@@ -598,6 +653,7 @@ void tally_web_server_start() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
     config.max_uri_handlers = 5;
+    config.lru_purge_enable = true;
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
         ESP_LOGE(kTag, "Could not start HTTP server");

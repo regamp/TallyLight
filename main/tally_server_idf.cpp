@@ -190,7 +190,7 @@ void handle_packet(const uint8_t* packet, size_t packet_size, const sockaddr_in&
         if (flags & kAck) client->last_acked_id = read_be16(packet + 4);
         if (flags & kAckRequest) send_empty_ack(*client, remote_packet_id);
         if (flags & kResendRequest) {
-            const uint16_t wanted = static_cast<uint16_t>(read_be16(packet + 6) + 1);
+            const uint16_t wanted = static_cast<uint16_t>((read_be16(packet + 6) + 1) & 0x7FFF);
             resend_last_packet(*client, wanted);
         }
         return;

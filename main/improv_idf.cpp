@@ -33,6 +33,11 @@ constexpr uint8_t kUnableToConnect = 3;
 std::array<uint8_t, 128> frame_buffer{};
 size_t frame_position = 0;
 
+bool station_connected() {
+    wifi_ap_record_t access_point{};
+    return esp_wifi_sta_get_ap_info(&access_point) == ESP_OK;
+}
+
 void send_frame(uint8_t type, const uint8_t* payload, size_t payload_size) {
     if (payload_size > 250) return;
     std::vector<uint8_t> frame{'I', 'M', 'P', 'R', 'O', 'V', kVersion, type,
@@ -69,24 +74,26 @@ void send_rpc_response(uint8_t command, const std::vector<std::string>& values) 
 }
 
 void apply_wifi_settings(const uint8_t* data, size_t length) {
-    if (length < 2 || data[1] + 2 > length) {
+    if (length < 3 || data[1] != length - 2) {
         send_error(1);
         return;
     }
-    const size_t ssid_length = data[1];
-    const size_t password_length_offset = 2 + ssid_length;
+    const size_t ssid_length = data[2];
+    const size_t password_length_offset = 3 + ssid_length;
     if (password_length_offset >= length) {
         send_error(1);
         return;
     }
     const size_t password_length = data[password_length_offset];
-    if (password_length_offset + 1 + password_length > length || ssid_length == 0 || ssid_length > 32 || password_length > 64) {
+    if (password_length_offset + 1 + password_length != length ||
+        ssid_length == 0 || ssid_length > 32 || password_length > 64) {
         send_error(1);
         return;
     }
 
-    TallySettings updated = tally_settings;
-    memcpy(updated.wifi_ssid, data + 2, ssid_length);
+    const TallySettings previous = tally_settings;
+    TallySettings updated = previous;
+    memcpy(updated.wifi_ssid, data + 3, ssid_length);
     updated.wifi_ssid[ssid_length] = '\0';
     memcpy(updated.wifi_password, data + password_length_offset + 1, password_length);
     updated.wifi_password[password_length] = '\0';
@@ -96,8 +103,11 @@ void apply_wifi_settings(const uint8_t* data, size_t length) {
     strlcpy(reinterpret_cast<char*>(config.sta.ssid), updated.wifi_ssid, sizeof(config.sta.ssid));
     strlcpy(reinterpret_cast<char*>(config.sta.password), updated.wifi_password, sizeof(config.sta.password));
     config.sta.threshold.authmode = WIFI_AUTH_OPEN;
-    if (esp_wifi_set_mode(WIFI_MODE_APSTA) != ESP_OK ||
-        esp_wifi_set_config(WIFI_IF_STA, &config) != ESP_OK || esp_wifi_connect() != ESP_OK) {
+    esp_err_t result = esp_wifi_set_mode(WIFI_MODE_APSTA);
+    if (result == ESP_OK) result = esp_wifi_set_config(WIFI_IF_STA, &config);
+    if (result == ESP_OK) result = esp_wifi_connect();
+    if (result != ESP_OK) {
+        ESP_LOGE(kTag, "Could not apply Wi-Fi settings: %s", esp_err_to_name(result));
         send_state(0);
         send_error(kUnableToConnect);
         return;
@@ -121,11 +131,18 @@ void apply_wifi_settings(const uint8_t* data, size_t length) {
 
     tally_settings = updated;
     if (tally_settings_save() != ESP_OK) {
+        tally_settings = previous;
         send_state(0);
         send_error(0xFF);
         return;
     }
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    result = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (result != ESP_OK) {
+        ESP_LOGE(kTag, "Could not disable the setup access point: %s", esp_err_to_name(result));
+        send_state(0);
+        send_error(kUnableToConnect);
+        return;
+    }
     send_error(0);
     send_state(4);
     esp_netif_ip_info_t ip_info{};
@@ -147,7 +164,8 @@ void handle_rpc(const uint8_t* data, size_t length) {
         case kCurrentState: {
             esp_netif_ip_info_t ip_info{};
             esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-            const bool connected = netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr;
+            const bool connected = station_connected();
+            if (connected && netif) esp_netif_get_ip_info(netif, &ip_info);
             send_state(connected ? 4 : 2);
             if (connected) {
                 char url[48];
@@ -160,6 +178,10 @@ void handle_rpc(const uint8_t* data, size_t length) {
             send_rpc_response(kDeviceInfo, {"ATEM Tally Light", "ESP-IDF", "ESP32-C3/S3", tally_settings.device_name});
             break;
         case kWifiNetworks: {
+            if (station_connected()) {
+                send_rpc_response(kWifiNetworks, {});
+                break;
+            }
             wifi_scan_config_t scan{};
             if (esp_wifi_scan_start(&scan, true) != ESP_OK) {
                 send_rpc_response(kWifiNetworks, {});

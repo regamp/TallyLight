@@ -21,14 +21,18 @@ LiPo monitoring can be enabled in the setup page. Configure the ADC GPIO, low-vo
 ## Included behavior
 
 - Station-mode Wi-Fi connection and reconnect.
-- Native HTTP setup page and NVS settings persistence, including fallback setup access point.
-- ATEM UDP hello, ordered packet processing, cumulative ACK batching and retry on send-memory pressure, retransmission-aware acknowledgements, stalled-sequence detection/reconnect, tally-by-index and streaming-status handling.
-- Addressable WS2812/Neopixel strip output with configurable tally and status LED positions.
-- Optional calibrated ADC LiPo monitoring, adjustable divider ratio/low-voltage threshold, and purple low-battery indication.
-- Independent web controls for `Debug mode` and `Test server`. Debug mode logs ATEM UDP TX/RX headers, a bounded packet-byte preview, packet/command sequence handling, and decoded `TlIn`/`StRS` status on the serial monitor. Packet diagnostics are batched and receive processing yields periodically to avoid starving the ESP-IDF idle task; UDP send errors include free-heap diagnostics, and persistent ACK send failures trigger reconnect. Test server sends Off, Preview, or Program to the local LEDs and connected UDP tally clients, overriding ATEM tally updates while enabled.
-- UDP tally relay on port 9910, with up to five clients, handshake, tally forwarding, ACK/retry, keepalive, and disconnect handling.
+- Native HTTP setup page and NVS settings persistence, including fallback setup access point and delayed shutdown after stable Wi-Fi recovery.
+- ATEM UDP hello, ordered packet processing, immediate packet-ID ACKs, retransmission-aware acknowledgements, and reconnect after five seconds without valid packets.
+- Addressable WS2812/Neopixel strip output with configurable tally and status positions, a fixed RMT item buffer, and a 64-pixel limit.
+- Optional calibrated ADC1 LiPo monitoring, IIR voltage averaging, debounced low-voltage status, and purple low-battery indication.
+- Independent web controls for `Debug mode` and `Test server`. Debug mode uses rate-limited command/anomaly logging and packet counters; it automatically disables after ten minutes and is not retained across reboot. Test server sends Off, Preview, or Program to local LEDs and connected UDP tally clients, overriding ATEM tally updates while enabled.
+- UDP tally relay on port 9910, with up to five clients, restartable same-address handshakes, wrapped 15-bit packet IDs, same-ID retransmission, tally forwarding, keepalive, and disconnect handling.
 - Improv Serial device info, Wi-Fi scan, state reporting, and Wi-Fi credential provisioning.
 
 The tally relay shares the same firmware with direct ATEM mode; clients connect to this unit at UDP port 9910. The ATEM client itself uses a separate ephemeral UDP source port. Configure network and LED wiring for your particular board before use.
 
-The Debug mode and Test server enable settings are persistent and work independently without restarting the device. The Test server's selected tally number and Off/Preview/Program state are volatile and start Off after reboot.
+The Test server enable setting is persistent; its selected tally number and Off/Preview/Program state are volatile and start Off after reboot. Debug mode is temporary and is automatically disabled after ten minutes.
+
+## LED strip driver follow-up
+
+The current ESP-IDF implementation uses the legacy RMT driver with a persistent, fixed-size item buffer. The planned migration is to add Espressif's `espressif/led_strip` component, replace the legacy RMT setup/write calls with its strip handle and refresh API, and verify color ordering, brightness, status-pixel behavior, and reset timing on both ESP32-C3 and ESP32-S3.
