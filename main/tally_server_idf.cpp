@@ -34,6 +34,8 @@ struct Client {
     uint32_t last_received = 0;
     uint32_t last_sent = 0;
     uint16_t last_acked_id = 0;
+    std::array<uint8_t, 64> last_reliable_packet{};
+    size_t last_reliable_packet_size = 0;
 };
 
 std::array<Client, kMaxClients> clients{};
@@ -42,7 +44,12 @@ uint8_t tally_sources = 0;
 bool tally_changed = true;
 int server_socket = -1;
 SemaphoreHandle_t tally_mutex;
+TaskHandle_t relay_task_handle = nullptr;
 bool relay_started = false;
+
+void notify_tally_server() {
+    if (relay_task_handle) xTaskNotifyGive(relay_task_handle);
+}
 
 uint32_t millis_now() {
     return static_cast<uint32_t>(esp_timer_get_time() / 1000);
@@ -75,29 +82,49 @@ Client* find_client(const sockaddr_in& address) {
 }
 
 void send_packet(Client& client, uint8_t flags, const uint8_t* payload, size_t payload_length,
-                 uint16_t ack_id = 0, bool resend = false, uint16_t resend_id = 0) {
+                 uint16_t ack_id = 0) {
     uint8_t packet[64]{};
     const size_t packet_length = 12 + payload_length;
+    if (packet_length > sizeof(packet)) return;
     packet[0] = static_cast<uint8_t>(flags | ((packet_length >> 8) & 0x07));
     packet[1] = static_cast<uint8_t>(packet_length);
     write_be16(packet + 2, client.session_id);
     write_be16(packet + 4, ack_id);
 
-    if (resend) {
-        write_be16(packet + 10, resend_id);
-    } else if ((flags & kAckRequest) && !(flags & (kResent | kResendRequest | kHello))) {
-        client.local_packet_id++;
-        write_be16(packet + 10, client.local_packet_id);
+    const bool reliable = (flags & kAckRequest) && !(flags & (kResent | kResendRequest | kHello));
+    uint16_t packet_id = client.local_packet_id;
+    if (reliable) {
+        packet_id = static_cast<uint16_t>((client.local_packet_id + 1) & 0x7FFF);
+        write_be16(packet + 10, packet_id);
     }
     if (payload_length) memcpy(packet + 12, payload, payload_length);
 
     const int sent = sendto(server_socket, packet, packet_length, 0,
                             reinterpret_cast<const sockaddr*>(&client.address), sizeof(client.address));
-    if (sent == static_cast<int>(packet_length)) client.last_sent = millis_now();
+    if (sent == static_cast<int>(packet_length)) {
+        client.last_sent = millis_now();
+        if (reliable) {
+            client.local_packet_id = packet_id;
+            memcpy(client.last_reliable_packet.data(), packet, packet_length);
+            client.last_reliable_packet_size = packet_length;
+        }
+    }
 }
 
-void send_tally(Client& client, uint8_t flags = kAckRequest, uint16_t resend_id = 0,
-                bool resend = false) {
+void resend_last_packet(Client& client, uint16_t requested_id = UINT16_MAX) {
+    if (!client.last_reliable_packet_size) return;
+    const uint16_t packet_id = read_be16(client.last_reliable_packet.data() + 10);
+    if (requested_id != UINT16_MAX && requested_id != packet_id) return;
+
+    uint8_t packet[64];
+    memcpy(packet, client.last_reliable_packet.data(), client.last_reliable_packet_size);
+    packet[0] |= kResent;
+    const int sent = sendto(server_socket, packet, client.last_reliable_packet_size, 0,
+                            reinterpret_cast<const sockaddr*>(&client.address), sizeof(client.address));
+    if (sent == static_cast<int>(client.last_reliable_packet_size)) client.last_sent = millis_now();
+}
+
+void send_tally(Client& client, uint8_t flags = kAckRequest) {
     std::array<uint8_t, 51> payload{};
     uint8_t source_count;
     std::array<uint8_t, kMaxFlags> current_flags{};
@@ -111,7 +138,7 @@ void send_tally(Client& client, uint8_t flags = kAckRequest, uint16_t resend_id 
     memcpy(payload.data() + 4, "TlIn", 4);
     write_be16(payload.data() + 8, source_count);
     memcpy(payload.data() + 10, current_flags.data(), source_count);
-    send_packet(client, flags, payload.data(), command_length, 0, resend, resend_id);
+    send_packet(client, flags, payload.data(), command_length);
 }
 
 void send_empty_ack(Client& client, uint16_t remote_id) {
@@ -144,15 +171,27 @@ void handle_packet(const uint8_t* packet, size_t packet_size, const sockaddr_in&
         return;
     }
 
+    if (flags & kHello) {
+        const sockaddr_in address = client->address;
+        reset_client(*client);
+        client->address = address;
+        client->session_id = session_id;
+        client->last_received = millis_now();
+        uint8_t response[8]{};
+        response[0] = 2;
+        send_packet(*client, kHello, response, sizeof(response));
+        client->connected = true;
+        return;
+    }
+
     client->session_id = session_id;
     client->last_received = millis_now();
-
     if (client->initialized) {
         if (flags & kAck) client->last_acked_id = read_be16(packet + 4);
         if (flags & kAckRequest) send_empty_ack(*client, remote_packet_id);
         if (flags & kResendRequest) {
             const uint16_t wanted = static_cast<uint16_t>(read_be16(packet + 6) + 1);
-            send_tally(*client, kResent | kAck | kAckRequest, wanted, true);
+            resend_last_packet(*client, wanted);
         }
         return;
     }
@@ -166,14 +205,7 @@ void handle_packet(const uint8_t* packet, size_t packet_size, const sockaddr_in&
         return;
     }
 
-    if (flags & kHello) {
-        uint8_t response[8]{};
-        response[0] = 2;
-        send_packet(*client, kHello, response, sizeof(response));
-        client->connected = true;
-    } else {
-        reset_client(*client);
-    }
+    reset_client(*client);
 }
 
 void service_clients() {
@@ -195,8 +227,8 @@ void service_clients() {
         if (now - client.last_received >= 5000) {
             reset_client(client);
         } else if (client.initialized) {
-            if (client.last_acked_id < client.local_packet_id && now - client.last_sent >= 250) {
-                send_tally(client);
+            if (client.last_acked_id != client.local_packet_id && now - client.last_sent >= 250) {
+                resend_last_packet(client);
             } else if (now - client.last_received >= 1500 && now - client.last_sent >= 1500) {
                 send_packet(client, kAckRequest, nullptr, 0);
             }
@@ -229,7 +261,7 @@ void tally_server_task(void*) {
     }
 
     timeval timeout{};
-    timeout.tv_usec = 100000;
+    timeout.tv_usec = 20000;
     setsockopt(server_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     ESP_LOGI(kTag, "Tally relay listening on UDP %u", kPort);
     uint8_t packet[1500];
@@ -239,6 +271,7 @@ void tally_server_task(void*) {
         const int received = recvfrom(server_socket, packet, sizeof(packet), 0,
                                       reinterpret_cast<sockaddr*>(&remote), &address_length);
         if (received > 0) handle_packet(packet, static_cast<size_t>(received), remote);
+        ulTaskNotifyTake(pdTRUE, 0);
         service_clients();
     }
 }
@@ -252,7 +285,8 @@ void tally_server_start() {
         ESP_LOGE(kTag, "Could not create tally mutex");
         return;
     }
-    if (xTaskCreate(tally_server_task, "tally_server", 4096, nullptr, 5, nullptr) == pdPASS) {
+    if (xTaskCreate(tally_server_task, "tally_server", 4096, nullptr, 5,
+                    &relay_task_handle) == pdPASS) {
         relay_started = true;
     } else {
         ESP_LOGE(kTag, "Could not start tally relay task");
@@ -260,23 +294,28 @@ void tally_server_start() {
 }
 
 void tally_server_set_sources(uint8_t count) {
+    if (!tally_mutex) return;
     xSemaphoreTake(tally_mutex, portMAX_DELAY);
     const uint8_t safe_count = std::min<uint8_t>(count, kMaxFlags);
-    if (tally_sources != safe_count) {
+    const bool changed = tally_sources != safe_count;
+    if (changed) {
         tally_sources = safe_count;
         tally_changed = true;
     }
     xSemaphoreGive(tally_mutex);
+    if (changed) notify_tally_server();
 }
 
 void tally_server_set_flag(uint8_t index, uint8_t flags) {
-    if (index >= kMaxFlags) return;
+    if (!tally_mutex || index >= kMaxFlags) return;
     xSemaphoreTake(tally_mutex, portMAX_DELAY);
-    if (tally_flags[index] != flags) {
+    const bool changed = tally_flags[index] != flags;
+    if (changed) {
         tally_flags[index] = flags;
         tally_changed = true;
     }
     xSemaphoreGive(tally_mutex);
+    if (changed) notify_tally_server();
 }
 
 void tally_server_reset_flags() {
@@ -285,6 +324,7 @@ void tally_server_reset_flags() {
     tally_flags.fill(0);
     tally_changed = true;
     xSemaphoreGive(tally_mutex);
+    notify_tally_server();
 }
 
 void tally_server_set_all_flags(uint8_t count, const uint8_t* flags) {
@@ -295,4 +335,5 @@ void tally_server_set_all_flags(uint8_t count, const uint8_t* flags) {
     if (tally_sources) memcpy(tally_flags.data(), flags, tally_sources);
     tally_changed = true;
     xSemaphoreGive(tally_mutex);
+    notify_tally_server();
 }
