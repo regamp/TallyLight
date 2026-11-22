@@ -14,6 +14,7 @@
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -40,13 +41,12 @@ constexpr uint16_t kAtemPacketIdModulus = 1U << 15;
 constexpr size_t kAtemReceiveBatchSize = 16;
 constexpr size_t kAtemOutOfOrderCapacity = 32;
 constexpr size_t kAtemMaxPacketSize = 1500;
+constexpr size_t kAtemBufferedPacketSize = 256;
 constexpr size_t kDebugPacketPreviewSize = 32;
-constexpr uint8_t kAtemPacketsPerAck = 16;
-constexpr uint32_t kAtemAckRetryMs = 20;
-constexpr uint32_t kAtemAckStallTimeoutMs = 1000;
+constexpr bool kAckDuringInit = false;
 constexpr int kWifiConnected = BIT0;
 constexpr uint32_t kInitRequestRetryMs = 1000;
-constexpr uint8_t kInitRequestMaxAttempts = 3;
+constexpr uint32_t kHealthReportIntervalMs = 30000;
 
 enum class Color : uint8_t {
     Off,
@@ -68,11 +68,13 @@ struct PendingAtemPacket {
     bool occupied = false;
     uint16_t packet_id = 0;
     size_t packet_size = 0;
-    std::array<uint8_t, kAtemMaxPacketSize> bytes{};
+    std::array<uint8_t, kAtemBufferedPacketSize> bytes{};
 };
 
 EventGroupHandle_t wifi_events;
 esp_netif_t* station_netif = nullptr;
+TaskHandle_t atem_task_handle = nullptr;
+portMUX_TYPE tally_flags_mux = portMUX_INITIALIZER_UNLOCKED;
 int atem_socket = -1;
 sockaddr_in switcher_address{};
 std::array<uint8_t, kMaxTallySources> tally_flags{};
@@ -80,24 +82,22 @@ uint16_t local_packet_id = 0;
 uint16_t session_id = 0x53AB;
 uint16_t last_remote_packet_id = 0;
 bool remote_sequence_initialized = false;
-uint32_t out_of_order_stalled_since_ms = 0;
 std::array<PendingAtemPacket, kAtemOutOfOrderCapacity> out_of_order_packets{};
-bool atem_ack_pending = false;
-bool atem_ack_attempted = false;
-uint16_t pending_atem_ack_id = 0;
-uint8_t pending_atem_ack_packets = 0;
-uint32_t atem_ack_pending_since_ms = 0;
-uint32_t last_atem_ack_attempt_ms = 0;
 uint32_t last_atem_send_error_log_ms = 0;
 uint32_t suppressed_atem_send_errors = 0;
+uint32_t atem_send_failure_count = 0;
+uint32_t atem_enomem_send_failure_count = 0;
+uint32_t timeout_reconnect_count = 0;
+uint32_t wifi_reconnect_count = 0;
+uint32_t manual_reconnect_count = 0;
 uint32_t last_atem_packet_ms = 0;
 uint32_t last_hello_ms = 0;
-uint32_t last_atem_status_log_ms = 0;
 uint32_t last_battery_sample_ms = 0;
 uint32_t battery_warning_started_ms = 0;
-bool atem_connected = false;
-bool stream_is_on_air = false;
-uint8_t current_state = 0;
+std::atomic<bool> atem_connected{false};
+std::atomic<bool> stream_is_on_air{false};
+std::atomic<uint8_t> current_state{0};
+std::atomic<bool> output_refresh_pending{false};
 bool battery_warning_scheduled = false;
 bool battery_warning_flash_active = false;
 bool battery_warning_flash_on = false;
@@ -115,6 +115,9 @@ std::vector<Rgb> strip_pixels;
 bool strip_initialized = false;
 std::atomic<bool> test_server_mode{false};
 std::atomic<bool> debug_logging_mode{false};
+std::atomic<bool> wifi_lost{false};
+std::atomic<bool> manual_reset_requested{false};
+std::atomic<bool> debug_tally_pending{false};
 std::atomic<uint8_t> debug_number{1};
 std::atomic<uint8_t> debug_flags{0};
 
@@ -272,7 +275,10 @@ void show_strip() {
     reset.level1 = 0;
     reset.duration1 = 1000;
     items.push_back(reset);
-    ESP_ERROR_CHECK(rmt_write_items(RMT_CHANNEL_0, items.data(), items.size(), true));
+    const esp_err_t result = rmt_write_items(RMT_CHANNEL_0, items.data(), items.size(), true);
+    if (result != ESP_OK) {
+        ESP_LOGE(kTag, "Could not update LED strip: %s", esp_err_to_name(result));
+    }
 }
 
 void initialize_strip() {
@@ -307,7 +313,7 @@ void set_strip_tally(Color color) {
 void set_state(uint8_t state) {
     if (current_state == state) return;
     current_state = state;
-    if (strip_initialized) show_strip();
+    output_refresh_pending.store(true);
 }
 
 Color tally_color(uint8_t mode, uint8_t tally_flag) {
@@ -326,39 +332,48 @@ void update_tally_leds() {
         return;
     }
     const unsigned source = tally_settings.tally_number - 1;
-    const uint8_t flag = source < tally_flags.size() ? tally_flags[source] : 0;
+    uint8_t flag = 0;
+    if (source < tally_flags.size()) {
+        portENTER_CRITICAL(&tally_flags_mux);
+        flag = tally_flags[source];
+        portEXIT_CRITICAL(&tally_flags_mux);
+    }
     set_strip_tally(tally_color(tally_settings.led1_mode, flag));
 }
 
 void apply_debug_tally() {
     if (!test_server_mode.load()) return;
-    tally_flags.fill(0);
+    std::array<uint8_t, kMaxTallySources> debug_tally_flags{};
     const uint8_t number = debug_number.load();
-    if (number >= 1 && number <= kMaxTallySources) tally_flags[number - 1] = debug_flags.load();
-    tally_server_set_all_flags(kMaxTallySources, tally_flags.data());
-    update_tally_leds();
+    if (number >= 1 && number <= kMaxTallySources)
+        debug_tally_flags[number - 1] = debug_flags.load();
+    tally_server_set_all_flags(kMaxTallySources, debug_tally_flags.data());
+    output_refresh_pending.store(true);
 }
 
 void wifi_event_handler(void*, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        if (tally_settings.wifi_ssid[0] != '\0') ESP_ERROR_CHECK(esp_wifi_connect());
+        if (tally_settings.wifi_ssid[0] != '\0') {
+            const esp_err_t result = esp_wifi_connect();
+            if (result != ESP_OK) {
+                ESP_LOGE(kTag, "Could not connect to Wi-Fi: %s", esp_err_to_name(result));
+            }
+        }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
-        tally_server_start();
-        apply_debug_tally();
+        debug_tally_pending.store(true);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(wifi_events, kWifiConnected);
-        atem_connected = false;
-        tally_flags.fill(0);
-        tally_server_reset_flags();
-        set_state(1);
-        ESP_LOGW(kTag, "Wi-Fi disconnected; reconnecting");
-        esp_wifi_connect();
+        wifi_lost.store(true);
+        const auto* event = static_cast<wifi_event_sta_disconnected_t*>(event_data);
+        ESP_LOGW(kTag, "Wi-Fi disconnected (reason %u); reconnecting",
+                 event ? static_cast<unsigned>(event->reason) : 0U);
+        const esp_err_t result = esp_wifi_connect();
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "Could not reconnect to Wi-Fi: %s", esp_err_to_name(result));
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        tally_server_start();
-        apply_debug_tally();
         xEventGroupSetBits(wifi_events, kWifiConnected);
-        const auto* event = static_cast<ip_event_got_ip_t*>(event_data);
-        ESP_LOGI(kTag, "Wi-Fi connected; setup page at http://" IPSTR, IP2STR(&event->ip_info.ip));
+        debug_tally_pending.store(true);
     }
 }
 
@@ -401,7 +416,10 @@ void initialize_wifi() {
     }
 
     const bool has_saved_wifi = tally_settings.wifi_ssid[0] != '\0';
-    ESP_ERROR_CHECK(esp_wifi_set_mode(has_saved_wifi ? WIFI_MODE_STA : WIFI_MODE_AP));
+    const esp_err_t mode_result = esp_wifi_set_mode(has_saved_wifi ? WIFI_MODE_STA : WIFI_MODE_AP);
+    if (mode_result != ESP_OK) {
+        ESP_LOGE(kTag, "Could not set Wi-Fi mode: %s", esp_err_to_name(mode_result));
+    }
     if (has_saved_wifi) {
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
     } else {
@@ -411,6 +429,8 @@ void initialize_wifi() {
     ESP_ERROR_CHECK(esp_wifi_start());
     if (!tally_settings.wifi_ssid[0]) soft_ap_active = true;
 }
+
+void record_atem_send_failure(const char* operation, int error);
 
 bool send_atem_packet(uint8_t flags, uint16_t packet_id, const uint8_t* payload, size_t payload_size,
                       uint8_t header_byte_9 = 0, uint8_t header_byte_6 = 0,
@@ -436,24 +456,10 @@ bool send_atem_packet(uint8_t flags, uint16_t packet_id, const uint8_t* payload,
     const int sent = sendto(atem_socket, packet, packet_size, 0,
                             reinterpret_cast<const sockaddr*>(&switcher_address), sizeof(switcher_address));
     if (sent < 0) {
-        const uint32_t now = millis_now();
-        if (errno != ENOMEM || last_atem_send_error_log_ms == 0 ||
-            now - last_atem_send_error_log_ms >= 1000) {
-            ESP_LOGW(kTag,
-                     "ATEM UDP send failed (flags 0x%02x): errno %d; free heap=%u, largest block=%u, suppressed=%u",
-                     flags, errno,
-                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
-                     static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)),
-                     static_cast<unsigned>(suppressed_atem_send_errors));
-            last_atem_send_error_log_ms = now;
-            suppressed_atem_send_errors = 0;
-        } else {
-            ++suppressed_atem_send_errors;
-        }
+        record_atem_send_failure("ATEM UDP send", errno);
         return false;
     } else if (static_cast<size_t>(sent) != packet_size) {
-        ESP_LOGW(kTag, "ATEM UDP send was short: %d of %u bytes", sent,
-                 static_cast<unsigned>(packet_size));
+        record_atem_send_failure("Short ATEM UDP send", errno);
         return false;
     } else {
         log_atem_packet("TX", packet, packet_size, switcher_address);
@@ -466,6 +472,26 @@ void send_hello() {
     payload[0] = 0x01;
     send_atem_packet(0x02, 0, payload, sizeof(payload), 0x3A);
     last_hello_ms = millis_now();
+}
+
+void record_atem_send_failure(const char* operation, int error) {
+    ++atem_send_failure_count;
+    if (error == ENOMEM) ++atem_enomem_send_failure_count;
+    const uint32_t now = millis_now();
+    if (last_atem_send_error_log_ms == 0 || now - last_atem_send_error_log_ms >= 1000) {
+        ESP_LOGW(kTag,
+                 "%s failed: errno %d; free heap=%u, largest block=%u, failures=%u, ENOMEM=%u, suppressed=%u",
+                 operation, error,
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)),
+                 static_cast<unsigned>(atem_send_failure_count),
+                 static_cast<unsigned>(atem_enomem_send_failure_count),
+                 static_cast<unsigned>(suppressed_atem_send_errors));
+        last_atem_send_error_log_ms = now;
+        suppressed_atem_send_errors = 0;
+    } else {
+        ++suppressed_atem_send_errors;
+    }
 }
 
 void process_atem_payload(const uint8_t* packet, size_t packet_size) {
@@ -486,27 +512,29 @@ void process_atem_payload(const uint8_t* packet, size_t packet_size) {
             ++command_count;
         }
 
-        if (memcmp(command + 4, "TlIn", 4) == 0 && data_size >= 2) {
+        if (!test_server_mode.load() && memcmp(command + 4, "TlIn", 4) == 0 && data_size >= 2) {
             const uint16_t sources = std::min<uint16_t>(read_be16(command + 8), kMaxTallySources);
             const size_t count = std::min<size_t>(sources, data_size - 2);
+            std::array<uint8_t, kMaxTallySources> flags_snapshot{};
+            portENTER_CRITICAL(&tally_flags_mux);
             memset(tally_flags.data(), 0, tally_flags.size());
             memcpy(tally_flags.data(), command + 10, count);
-            tally_server_set_sources(static_cast<uint8_t>(sources));
-            for (uint8_t index = 0; index < sources; ++index)
-                tally_server_set_flag(index, tally_flags[index]);
-            update_tally_leds();
+            flags_snapshot = tally_flags;
+            portEXIT_CRITICAL(&tally_flags_mux);
+            tally_server_set_all_flags(static_cast<uint8_t>(sources), flags_snapshot.data());
+            output_refresh_pending.store(true);
             if (debug_logging_mode.load()) {
                 ESP_LOGI(kTag, "ATEM TlIn: %u sources; tally flags updated",
                          static_cast<unsigned>(sources));
             }
-        } else if (memcmp(command + 4, "StRS", 4) == 0 && data_size >= 2) {
+        } else if (!test_server_mode.load() && memcmp(command + 4, "StRS", 4) == 0 && data_size >= 2) {
             const uint16_t stream_flags = read_be16(command + 8);
             stream_is_on_air = (stream_flags & (1U << 2)) != 0;
             if (debug_logging_mode.load()) {
                 ESP_LOGI(kTag, "ATEM StRS: flags=0x%04x on_air=%s",
                          static_cast<unsigned>(stream_flags), stream_is_on_air ? "yes" : "no");
             }
-            update_tally_leds();
+            output_refresh_pending.store(true);
         }
 
         offset += command_size;
@@ -528,25 +556,16 @@ void request_missing_initialization_packet() {
             waiting_for_init_packet = false;
             init_request_attempts = 0;
         } else if (millis_now() - init_request_sent_ms >= kInitRequestRetryMs) {
-            if (init_request_attempts >= kInitRequestMaxAttempts) {
-                ESP_LOGW(kTag, "ATEM init packet %u did not arrive after %u retries; continuing",
-                         requested_init_packet_id, kInitRequestMaxAttempts);
-                missed_init_packets[requested_init_packet_id >> 3] &=
-                    static_cast<uint8_t>(~(1U << (requested_init_packet_id & 7)));
-                waiting_for_init_packet = false;
-                init_request_attempts = 0;
-            } else {
-                const uint16_t previous_id = requested_init_packet_id - 1;
-                if (debug_logging_mode.load()) {
-                    ESP_LOGI(kTag, "Requesting missing ATEM init packet %u (attempt %u)",
-                             requested_init_packet_id, init_request_attempts + 1);
-                }
-                send_atem_packet(0x08, 0, nullptr, 0, 0,
-                                 static_cast<uint8_t>(previous_id >> 8),
-                                 static_cast<uint8_t>(previous_id), 0x01);
-                init_request_sent_ms = millis_now();
-                ++init_request_attempts;
+            const uint16_t previous_id = requested_init_packet_id - 1;
+            if (debug_logging_mode.load()) {
+                ESP_LOGI(kTag, "Requesting missing ATEM init packet %u (attempt %u)",
+                         requested_init_packet_id, static_cast<unsigned>(init_request_attempts) + 1);
             }
+            send_atem_packet(0x08, 0, nullptr, 0, 0,
+                             static_cast<uint8_t>(previous_id >> 8),
+                             static_cast<uint8_t>(previous_id), 0x01);
+            init_request_sent_ms = millis_now();
+            if (init_request_attempts < UINT8_MAX) ++init_request_attempts;
         }
         if (waiting_for_init_packet) return;
     }
@@ -585,7 +604,8 @@ void process_ordered_atem_packet(const uint8_t* packet, size_t packet_size, uint
         init_payload_seen = true;
         init_last_packet_id = packet_id;
     }
-    if (packet_size > 12) process_atem_payload(packet, packet_size);
+    if (packet_size > 12 && packet_size <= kAtemBufferedPacketSize)
+        process_atem_payload(packet, packet_size);
     request_missing_initialization_packet();
 }
 
@@ -596,15 +616,8 @@ PendingAtemPacket* find_pending_atem_packet(uint16_t packet_id) {
     return nullptr;
 }
 
-bool has_pending_atem_packets() {
-    for (const PendingAtemPacket& pending : out_of_order_packets) {
-        if (pending.occupied) return true;
-    }
-    return false;
-}
-
 bool store_pending_atem_packet(const uint8_t* packet, size_t packet_size, uint16_t packet_id) {
-    if (packet_size > kAtemMaxPacketSize || find_pending_atem_packet(packet_id)) return false;
+    if (packet_size > kAtemBufferedPacketSize || find_pending_atem_packet(packet_id)) return false;
     for (PendingAtemPacket& pending : out_of_order_packets) {
         if (!pending.occupied) {
             memcpy(pending.bytes.data(), packet, packet_size);
@@ -617,44 +630,15 @@ bool store_pending_atem_packet(const uint8_t* packet, size_t packet_size, uint16
     return false;
 }
 
-void flush_pending_atem_ack(uint32_t now, bool force) {
-    if (!atem_ack_pending) return;
-    if (atem_ack_attempted && now - last_atem_ack_attempt_ms < kAtemAckRetryMs) return;
-    if (!force && pending_atem_ack_packets < kAtemPacketsPerAck &&
-        now - atem_ack_pending_since_ms < 5) return;
-
-    last_atem_ack_attempt_ms = now;
-    atem_ack_attempted = true;
-    if (debug_logging_mode.load()) {
-        ESP_LOGI(kTag, "Sending ATEM ACK through packet %u (%u received)",
-                 static_cast<unsigned>(pending_atem_ack_id),
-                 static_cast<unsigned>(pending_atem_ack_packets));
-    }
-    if (!send_atem_packet(0x10, pending_atem_ack_id, nullptr, 0)) return;
-
-    atem_ack_pending = false;
-    atem_ack_attempted = false;
-    pending_atem_ack_packets = 0;
-    atem_ack_pending_since_ms = 0;
-    last_atem_ack_attempt_ms = 0;
-}
-
-void acknowledge_atem_packet(uint16_t packet_id, bool force = false) {
-    if (!atem_ack_pending) {
-        atem_ack_pending = true;
-        pending_atem_ack_id = packet_id;
-        pending_atem_ack_packets = 0;
-        atem_ack_pending_since_ms = millis_now();
-        atem_ack_attempted = false;
-    }
-    pending_atem_ack_id = packet_id;
-    if (pending_atem_ack_packets < kAtemPacketsPerAck) ++pending_atem_ack_packets;
-    if (force || pending_atem_ack_packets >= kAtemPacketsPerAck)
-        flush_pending_atem_ack(millis_now(), true);
-}
-
 void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
                               uint16_t remote_packet_id) {
+    if (packet_size == 12 && remote_packet_id > 1) {
+        init_payload_seen = true;
+        init_last_packet_id = remote_packet_id;
+    }
+    if (kAckDuringInit || init_payload_seen)
+        send_atem_packet(0x10, remote_packet_id, nullptr, 0);
+
     if (remote_packet_id >= kAtemPacketIdModulus) {
         if (debug_logging_mode.load()) {
             ESP_LOGW(kTag, "Ignoring invalid ATEM packet sequence ID %u",
@@ -685,23 +669,18 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
                                         pending->packet_id);
             pending->occupied = false;
         }
-        out_of_order_stalled_since_ms = has_pending_atem_packets() ? millis_now() : 0;
-        acknowledge_atem_packet(last_remote_packet_id);
         return;
     }
 
     if (distance == 0 || distance > kAtemPacketIdModulus / 2) {
         if (debug_logging_mode.load()) {
-            ESP_LOGW(kTag, "Duplicate ATEM packet %u; re-acknowledging %u",
-                     static_cast<unsigned>(remote_packet_id),
-                     static_cast<unsigned>(last_remote_packet_id));
+            ESP_LOGW(kTag, "Duplicate ATEM packet %u; ACKed with its own ID",
+                     static_cast<unsigned>(remote_packet_id));
         }
-        acknowledge_atem_packet(last_remote_packet_id, true);
         return;
     }
 
     if (distance <= kAtemOutOfOrderCapacity) {
-        if (out_of_order_stalled_since_ms == 0) out_of_order_stalled_since_ms = millis_now();
         const bool already_buffered = find_pending_atem_packet(remote_packet_id) != nullptr;
         const bool stored = store_pending_atem_packet(packet, packet_size, remote_packet_id);
         if (debug_logging_mode.load()) {
@@ -711,19 +690,16 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
                      static_cast<unsigned>((last_remote_packet_id + 1) % kAtemPacketIdModulus));
         }
     } else if (debug_logging_mode.load()) {
-        if (out_of_order_stalled_since_ms == 0) out_of_order_stalled_since_ms = millis_now();
         ESP_LOGW(kTag, "ATEM packet gap exceeds buffer: last=%u received=%u distance=%u",
                  static_cast<unsigned>(last_remote_packet_id),
                  static_cast<unsigned>(remote_packet_id),
                  static_cast<unsigned>(distance));
-    } else if (out_of_order_stalled_since_ms == 0) {
-        out_of_order_stalled_since_ms = millis_now();
     }
 }
 
 void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockaddr_in& source) {
-    log_atem_packet("RX", packet, packet_size, source);
     if (packet_size < 12) {
+        log_atem_packet("RX", packet, packet_size, source);
         if (debug_logging_mode.load()) {
             ESP_LOGW(kTag, "Ignoring short ATEM UDP packet (%u bytes)",
                      static_cast<unsigned>(packet_size));
@@ -732,6 +708,7 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
     }
     const uint16_t declared_size = static_cast<uint16_t>(((packet[0] & 0x07) << 8) | packet[1]);
     if (declared_size != packet_size) {
+        log_atem_packet("RX", packet, packet_size, source);
         if (debug_logging_mode.load()) {
             ESP_LOGW(kTag, "Ignoring ATEM packet with declared size %u, received %u",
                      static_cast<unsigned>(declared_size), static_cast<unsigned>(packet_size));
@@ -746,24 +723,28 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
 
     if (flags & 0x02) {
         atem_connected = packet_size <= 12 || packet[12] != 3;
-        if (!atem_connected) {
-            ESP_LOGE(kTag, "ATEM rejected the connection (status=%u; no free client slot)",
-                     packet_size > 12 ? packet[12] : 0);
-            return;
-        }
         clear_out_of_order_packets();
         last_remote_packet_id = remote_packet_id;
         remote_sequence_initialized = true;
-        out_of_order_stalled_since_ms = 0;
-        if (remote_packet_id < 41) {
-            missed_init_packets[remote_packet_id >> 3] &=
-                static_cast<uint8_t>(~(1U << (remote_packet_id & 7)));
+        send_atem_packet(0x10, 0, nullptr, 0, 0x03);
+        if (atem_connected) {
+            set_state(3);
+            ESP_LOGI(kTag, "ATEM switcher connected");
+        } else {
+            ESP_LOGE(kTag, "ATEM rejected the connection (status=%u; no free client slot)",
+                     packet_size > 12 ? packet[12] : 0);
         }
-        if (!send_atem_packet(0x10, 0, nullptr, 0, 0x03)) {
-            acknowledge_atem_packet(0, true);
-        }
-        set_state(3);
-        ESP_LOGI(kTag, "ATEM switcher connected");
+        log_atem_packet("RX", packet, packet_size, source);
+        return;
+    }
+
+    if (packet_size == 12 && remote_packet_id > 1) {
+        init_payload_seen = true;
+        init_last_packet_id = remote_packet_id;
+    }
+
+    if (!(flags & 0x02) && (flags & 0x01)) {
+        process_atem_ack_request(packet, packet_size, remote_packet_id);
     }
 
     if ((flags & 0x08) && !(flags & 0x02)) {
@@ -783,19 +764,15 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
         if (sent == sizeof(response)) {
             log_atem_packet("TX", response, sizeof(response), switcher_address);
         } else {
-            ESP_LOGW(kTag,
-                     "ATEM retransmit response failed: sent=%d errno=%d; free heap=%u, largest block=%u",
-                     sent, errno,
-                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
-                     static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
+            record_atem_send_failure("ATEM retransmit response", errno);
         }
     }
 
-    if (!(flags & 0x02) && (flags & 0x01)) {
-        process_atem_ack_request(packet, packet_size, remote_packet_id);
-    } else if (!(flags & 0x02) && packet_size > 12) {
+    if (!(flags & (0x02 | 0x01)) && packet_size > 12 &&
+               packet_size <= kAtemBufferedPacketSize) {
         process_atem_payload(packet, packet_size);
     }
+    log_atem_packet("RX", packet, packet_size, source);
 }
 
 bool open_atem_socket() {
@@ -840,12 +817,68 @@ bool open_atem_socket() {
     ESP_LOGI(kTag, "ATEM UDP socket ready; local port %u, destination %s:%u",
              static_cast<unsigned>(ntohs(bound_address.sin_port)),
              tally_settings.switcher_ip, kAtemPort);
+    last_atem_packet_ms = millis_now();
     return true;
 }
 
+void reset_atem_session(bool close_socket) {
+    atem_connected = false;
+    local_packet_id = 0;
+    session_id = 0x53AB;
+    last_remote_packet_id = 0;
+    remote_sequence_initialized = false;
+    init_payload_seen = false;
+    waiting_for_init_packet = false;
+    requested_init_packet_id = 0;
+    init_request_sent_ms = 0;
+    init_request_attempts = 0;
+    atem_initialized = false;
+    init_last_packet_id = 0;
+    missed_init_packets.fill(0xFF);
+    clear_out_of_order_packets();
+    portENTER_CRITICAL(&tally_flags_mux);
+    tally_flags.fill(0);
+    portEXIT_CRITICAL(&tally_flags_mux);
+    tally_server_reset_flags();
+    stream_is_on_air = false;
+    last_hello_ms = 0;
+    last_atem_packet_ms = millis_now();
+    output_refresh_pending.store(true);
+    if (test_server_mode.load()) debug_tally_pending.store(true);
+    if (close_socket && atem_socket >= 0) {
+        close(atem_socket);
+        atem_socket = -1;
+    }
+}
+
+void report_atem_health() {
+    wifi_ap_record_t access_point{};
+    const int rssi = (xEventGroupGetBits(wifi_events) & kWifiConnected) &&
+                     esp_wifi_sta_get_ap_info(&access_point) == ESP_OK
+                         ? access_point.rssi
+                         : -127;
+    ESP_LOGI(kTag,
+             "Health: heap=%u min_heap=%u largest_block=%u RSSI=%d dBm send_failures=%u ENOMEM=%u "
+             "reconnects(timeout/wifi/manual)=%u/%u/%u ATEM_stack_highwater=%u",
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
+             static_cast<unsigned>(esp_get_minimum_free_heap_size()),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)), rssi,
+             static_cast<unsigned>(atem_send_failure_count),
+             static_cast<unsigned>(atem_enomem_send_failure_count),
+             static_cast<unsigned>(timeout_reconnect_count),
+             static_cast<unsigned>(wifi_reconnect_count),
+             static_cast<unsigned>(manual_reconnect_count),
+             static_cast<unsigned>(atem_task_handle
+                                      ? uxTaskGetStackHighWaterMark(atem_task_handle)
+                                      : 0));
+}
+
 void run_atem_client() {
-    uint8_t packet[kAtemMaxPacketSize];
-    if (!atem_connected && millis_now() - last_hello_ms >= 1000) send_hello();
+    static uint8_t packet[kAtemMaxPacketSize];
+    if (!atem_connected && (last_hello_ms == 0 ||
+                            millis_now() - last_hello_ms >= 1000)) {
+        send_hello();
+    }
 
     bool first_receive = true;
     size_t received_packets = 0;
@@ -886,52 +919,49 @@ void run_atem_client() {
         }
     }
 
-    const uint32_t now = millis_now();
-    flush_pending_atem_ack(now, true);
-    if (!atem_connected && last_hello_ms != 0 && now - last_hello_ms >= 5000 &&
-        now - last_atem_status_log_ms >= 5000) {
-        ESP_LOGW(kTag, "No response from ATEM at %s:%u; retrying hello every second",
-                 tally_settings.switcher_ip, kAtemPort);
-        last_atem_status_log_ms = now;
-    }
+}
 
-    const bool sequence_stalled = out_of_order_stalled_since_ms != 0 &&
-                                  now - out_of_order_stalled_since_ms >= 5000;
-    const bool ack_stalled = atem_ack_pending &&
-                             now - atem_ack_pending_since_ms >= kAtemAckStallTimeoutMs;
-    if (atem_connected && (now - last_atem_packet_ms >= 5000 || sequence_stalled || ack_stalled)) {
-        if (ack_stalled) {
-            ESP_LOGW(kTag, "ATEM ACK could not be sent for %u ms; reconnecting",
-                     static_cast<unsigned>(now - atem_ack_pending_since_ms));
-        } else if (sequence_stalled) {
-            ESP_LOGW(kTag, "ATEM packet sequence stalled; reconnecting");
-        } else {
-            ESP_LOGW(kTag, "ATEM connection timed out; reconnecting");
+void atem_client_task(void*) {
+    reset_atem_session(false);
+    set_state(1);
+    uint32_t last_health_report_ms = millis_now();
+
+    while (true) {
+        if (wifi_lost.exchange(false)) {
+            ++wifi_reconnect_count;
+            reset_atem_session(true);
+            set_state(1);
         }
-        atem_connected = false;
-        tally_flags.fill(0);
-        tally_server_reset_flags();
-        atem_initialized = false;
-        init_payload_seen = false;
-        waiting_for_init_packet = false;
-        init_request_attempts = 0;
-        missed_init_packets.fill(0xFF);
-        clear_out_of_order_packets();
-        remote_sequence_initialized = false;
-        out_of_order_stalled_since_ms = 0;
-        atem_ack_pending = false;
-        atem_ack_attempted = false;
-        pending_atem_ack_packets = 0;
-        atem_ack_pending_since_ms = 0;
-        last_atem_ack_attempt_ms = 0;
-        last_remote_packet_id = 0;
-        local_packet_id = 0;
-        session_id = 0x53AB;
-        last_hello_ms = 0;
-        set_state(2);
-        close(atem_socket);
-        atem_socket = -1;
-        ESP_LOGI(kTag, "ATEM socket closed; reconnect will use a new local UDP port");
+        if (manual_reset_requested.exchange(false)) {
+            ++manual_reconnect_count;
+            reset_atem_session(false);
+            set_state(2);
+        }
+
+        const EventBits_t bits = xEventGroupGetBits(wifi_events);
+        if (bits & kWifiConnected) {
+            if (atem_socket < 0 && !open_atem_socket()) {
+                vTaskDelay(pdMS_TO_TICKS(1000));
+            } else {
+                if (!atem_connected) set_state(2);
+                run_atem_client();
+                const uint32_t now = millis_now();
+                if (atem_socket >= 0 && now - last_atem_packet_ms >= 5000) {
+                    ++timeout_reconnect_count;
+                    ESP_LOGW(kTag, "No valid ATEM packet for 5000 ms; reconnecting");
+                    reset_atem_session(true);
+                    set_state(2);
+                }
+            }
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+        const uint32_t now = millis_now();
+        if (now - last_health_report_ms >= kHealthReportIntervalMs) {
+            report_atem_health();
+            last_health_report_ms = now;
+        }
     }
 }
 
@@ -945,8 +975,7 @@ const char* tally_atem_connection_status() {
 }
 
 void tally_refresh_outputs() {
-    update_tally_leds();
-    if (strip_initialized) show_strip();
+    output_refresh_pending.store(true);
 }
 
 esp_err_t tally_test_server_set_enabled(bool enabled) {
@@ -960,20 +989,13 @@ esp_err_t tally_test_server_set_enabled(bool enabled) {
 
     test_server_mode.store(enabled);
     if (enabled) {
-        apply_debug_tally();
+        debug_tally_pending.store(true);
         return ESP_OK;
     }
 
     debug_flags.store(0);
-    tally_server_reset_flags();
-    tally_flags.fill(0);
-    atem_connected = false;
-    atem_initialized = false;
-    init_payload_seen = false;
-    waiting_for_init_packet = false;
-    missed_init_packets.fill(0xFF);
-    last_hello_ms = 0;
-    update_tally_leds();
+    manual_reset_requested.store(true);
+    output_refresh_pending.store(true);
     return ESP_OK;
 }
 
@@ -994,7 +1016,7 @@ void tally_debug_set_test(uint8_t number, uint8_t state) {
     debug_number.store(number);
     const uint8_t flags = state == 2 ? kTallyProgram : (state == 1 ? kTallyPreview : 0);
     debug_flags.store(flags);
-    if (test_server_mode.load()) apply_debug_tally();
+    if (test_server_mode.load()) debug_tally_pending.store(true);
 }
 
 bool tally_test_server_is_enabled() { return test_server_mode.load(); }
@@ -1006,6 +1028,7 @@ uint8_t tally_debug_state() {
 }
 
 extern "C" void app_main(void) {
+    ESP_LOGI(kTag, "Boot reset reason: %d", static_cast<int>(esp_reset_reason()));
     esp_err_t nvs_result = nvs_flash_init();
     if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES || nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -1018,7 +1041,7 @@ extern "C" void app_main(void) {
     debug_logging_mode.store(tally_settings.debug_logging_enabled);
     debug_number.store(tally_settings.tally_number);
     debug_flags.store(0);
-    missed_init_packets.fill(0xFF);
+    debug_tally_pending.store(test_server_mode.load());
     tally_battery_monitor_init();
     initialize_strip();
     set_state(1);
@@ -1026,6 +1049,11 @@ extern "C" void app_main(void) {
     if (strip_initialized) show_strip();
     improv_serial_start();
     initialize_wifi();
+    tally_server_start();
+    if (xTaskCreate(atem_client_task, "atem_client", 6144, nullptr, 6,
+                    &atem_task_handle) != pdPASS) {
+        ESP_LOGE(kTag, "Could not start ATEM client task");
+    }
 
     const uint32_t boot_ms = millis_now();
     if (soft_ap_active) {
@@ -1036,6 +1064,11 @@ extern "C" void app_main(void) {
         const EventBits_t bits = xEventGroupWaitBits(wifi_events, kWifiConnected, pdFALSE, pdTRUE,
                                 pdMS_TO_TICKS(50));
         const uint32_t now = millis_now();
+        if (debug_tally_pending.exchange(false)) apply_debug_tally();
+        if (output_refresh_pending.exchange(false)) {
+            update_tally_leds();
+            if (strip_initialized) show_strip();
+        }
         if (tally_settings.battery_monitor_enabled && now - last_battery_sample_ms >= 10000) {
             tally_battery_update();
             last_battery_sample_ms = now;
@@ -1049,24 +1082,26 @@ extern "C" void app_main(void) {
         if (!(bits & kWifiConnected)) {
             if (!soft_ap_active && millis_now() - boot_ms >= 10000) {
                 ESP_LOGW(kTag, "Wi-Fi unavailable; enabling setup access point");
-                ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-                wifi_config_t ap_config = make_setup_ap_config();
-                ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
-                soft_ap_active = true;
-                if (!web_server_started) {
-                    tally_web_server_start();
-                    web_server_started = true;
+                const esp_err_t mode_result = esp_wifi_set_mode(WIFI_MODE_APSTA);
+                if (mode_result != ESP_OK) {
+                    ESP_LOGE(kTag, "Could not enable setup access point mode: %s",
+                             esp_err_to_name(mode_result));
+                } else {
+                    wifi_config_t ap_config = make_setup_ap_config();
+                    const esp_err_t config_result = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+                    if (config_result != ESP_OK) {
+                        ESP_LOGE(kTag, "Could not configure setup access point: %s",
+                                 esp_err_to_name(config_result));
+                    } else {
+                        soft_ap_active = true;
+                        if (!web_server_started) {
+                            tally_web_server_start();
+                            web_server_started = true;
+                        }
+                    }
                 }
             }
             continue;
         }
-
-        if (atem_socket < 0 && !open_atem_socket()) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
-        if (!atem_connected) set_state(2);
-        run_atem_client();
-        if (atem_connected) update_tally_leds();
     }
 }
