@@ -24,6 +24,13 @@ constexpr uint8_t kResendRequest = 0x40;
 constexpr uint8_t kResent = 0x20;
 constexpr uint8_t kHello = 0x10;
 constexpr uint8_t kAckRequest = 0x08;
+constexpr size_t kReliablePacketHistorySize = 8;
+
+struct ReliablePacket {
+    uint16_t id = 0;
+    std::array<uint8_t, 64> bytes{};
+    size_t size = 0;
+};
 
 struct Client {
     sockaddr_in address{};
@@ -34,8 +41,9 @@ struct Client {
     uint32_t last_received = 0;
     uint32_t last_sent = 0;
     uint16_t last_acked_id = 0;
-    std::array<uint8_t, 64> last_reliable_packet{};
-    size_t last_reliable_packet_size = 0;
+    std::array<ReliablePacket, kReliablePacketHistorySize> reliable_packets{};
+    size_t next_reliable_packet = 0;
+    size_t reliable_packet_count = 0;
 };
 
 std::array<Client, kMaxClients> clients{};
@@ -82,7 +90,7 @@ Client* find_client(const sockaddr_in& address) {
 }
 
 void send_packet(Client& client, uint8_t flags, const uint8_t* payload, size_t payload_length,
-                 uint16_t ack_id = 0) {
+                 uint16_t ack_id = 0, uint16_t packet_id_override = UINT16_MAX) {
     uint8_t packet[64]{};
     const size_t packet_length = 12 + payload_length;
     if (packet_length > sizeof(packet)) return;
@@ -96,6 +104,9 @@ void send_packet(Client& client, uint8_t flags, const uint8_t* payload, size_t p
     if (reliable) {
         packet_id = static_cast<uint16_t>((client.local_packet_id + 1) & 0x7FFF);
         write_be16(packet + 10, packet_id);
+    } else if (packet_id_override != UINT16_MAX) {
+        packet_id = packet_id_override;
+        write_be16(packet + 10, packet_id);
     }
     if (payload_length) memcpy(packet + 12, payload, payload_length);
 
@@ -105,26 +116,22 @@ void send_packet(Client& client, uint8_t flags, const uint8_t* payload, size_t p
         client.last_sent = millis_now();
         if (reliable) {
             client.local_packet_id = packet_id;
-            memcpy(client.last_reliable_packet.data(), packet, packet_length);
-            client.last_reliable_packet_size = packet_length;
+            if (payload_length) {
+                ReliablePacket& stored = client.reliable_packets[client.next_reliable_packet];
+                stored.id = packet_id;
+                stored.size = packet_length;
+                memcpy(stored.bytes.data(), packet, packet_length);
+                client.next_reliable_packet =
+                    (client.next_reliable_packet + 1) % kReliablePacketHistorySize;
+                client.reliable_packet_count =
+                    std::min(client.reliable_packet_count + 1, kReliablePacketHistorySize);
+            }
         }
     }
 }
 
-void resend_last_packet(Client& client, uint16_t requested_id = UINT16_MAX) {
-    if (!client.last_reliable_packet_size) return;
-    const uint16_t packet_id = read_be16(client.last_reliable_packet.data() + 10);
-    if (requested_id != UINT16_MAX && requested_id != packet_id) return;
-
-    uint8_t packet[64];
-    memcpy(packet, client.last_reliable_packet.data(), client.last_reliable_packet_size);
-    packet[0] |= kResent;
-    const int sent = sendto(server_socket, packet, client.last_reliable_packet_size, 0,
-                            reinterpret_cast<const sockaddr*>(&client.address), sizeof(client.address));
-    if (sent == static_cast<int>(client.last_reliable_packet_size)) client.last_sent = millis_now();
-}
-
-void send_tally(Client& client, uint8_t flags = kAckRequest) {
+void send_tally(Client& client, uint8_t flags = kAckRequest,
+                uint16_t packet_id_override = UINT16_MAX) {
     std::array<uint8_t, 51> payload{};
     uint8_t source_count;
     std::array<uint8_t, kMaxFlags> current_flags{};
@@ -138,7 +145,42 @@ void send_tally(Client& client, uint8_t flags = kAckRequest) {
     memcpy(payload.data() + 4, "TlIn", 4);
     write_be16(payload.data() + 8, source_count);
     memcpy(payload.data() + 10, current_flags.data(), source_count);
-    send_packet(client, flags, payload.data(), command_length);
+    send_packet(client, flags, payload.data(), command_length, 0, packet_id_override);
+}
+
+void resend_packet(Client& client, const ReliablePacket& reliable_packet) {
+    uint8_t packet[64];
+    memcpy(packet, reliable_packet.bytes.data(), reliable_packet.size);
+    packet[0] |= kResent;
+    const int sent = sendto(server_socket, packet, reliable_packet.size, 0,
+                            reinterpret_cast<const sockaddr*>(&client.address), sizeof(client.address));
+    if (sent == static_cast<int>(reliable_packet.size)) client.last_sent = millis_now();
+}
+
+void resend_last_packet(Client& client, uint16_t requested_id = UINT16_MAX) {
+    if (!client.reliable_packet_count) {
+        if (requested_id != UINT16_MAX)
+            send_tally(client, static_cast<uint8_t>(kAckRequest | kResent), requested_id);
+        return;
+    }
+
+    const ReliablePacket* latest = nullptr;
+    for (size_t offset = 0; offset < client.reliable_packet_count; ++offset) {
+        const size_t index =
+            (client.next_reliable_packet + kReliablePacketHistorySize - 1 - offset) %
+            kReliablePacketHistorySize;
+        const ReliablePacket& candidate = client.reliable_packets[index];
+        if (requested_id == UINT16_MAX && !latest) latest = &candidate;
+        if (requested_id != UINT16_MAX && candidate.id == requested_id) {
+            resend_packet(client, candidate);
+            return;
+        }
+    }
+    if (requested_id == UINT16_MAX && latest) {
+        resend_packet(client, *latest);
+    } else if (requested_id != UINT16_MAX) {
+        send_tally(client, static_cast<uint8_t>(kAckRequest | kResent), requested_id);
+    }
 }
 
 void send_empty_ack(Client& client, uint16_t remote_id) {

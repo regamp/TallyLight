@@ -44,6 +44,8 @@ constexpr size_t kAtemBufferedPacketSize = 256;
 constexpr bool kAckDuringInit = false;
 constexpr int kWifiConnected = BIT0;
 constexpr uint32_t kInitRequestRetryMs = 1000;
+constexpr uint32_t kInitRequestCheckMs = 200;
+constexpr uint32_t kOutOfOrderGapTimeoutMs = 500;
 constexpr uint32_t kHealthReportIntervalMs = 30000;
 constexpr uint32_t kDebugAutoDisableMs = 10 * 60 * 1000;
 constexpr size_t kMaxNeopixelCount = 64;
@@ -81,6 +83,9 @@ uint16_t last_remote_packet_id = 0;
 bool remote_sequence_initialized = false;
 std::array<PendingAtemPacket, kAtemOutOfOrderCapacity> out_of_order_packets{};
 uint32_t out_of_order_occupied = 0;
+uint32_t out_of_order_gap_started_ms = 0;
+uint32_t last_gap_warning_ms = 0;
+uint32_t atem_skipped_gap_count = 0;
 uint32_t last_atem_send_error_log_ms = 0;
 uint32_t suppressed_atem_send_errors = 0;
 uint32_t atem_send_failure_count = 0;
@@ -585,16 +590,26 @@ void request_missing_initialization_packet() {
             waiting_for_init_packet = false;
             init_request_attempts = 0;
         } else if (millis_now() - init_request_sent_ms >= kInitRequestRetryMs) {
-            const uint16_t previous_id = requested_init_packet_id - 1;
-            if (should_log_debug_anomaly()) {
-                ESP_LOGI(kTag, "Requesting missing ATEM init packet %u (attempt %u)",
-                         requested_init_packet_id, static_cast<unsigned>(init_request_attempts) + 1);
+            if (init_request_attempts >= 5) {
+                missed_init_packets[requested_init_packet_id >> 3] &=
+                    static_cast<uint8_t>(~(1U << (requested_init_packet_id & 7)));
+                ESP_LOGW(kTag, "Giving up on missing ATEM init packet %u after 5 attempts",
+                         static_cast<unsigned>(requested_init_packet_id));
+                waiting_for_init_packet = false;
+                init_request_attempts = 0;
+            } else {
+                const uint16_t previous_id = requested_init_packet_id - 1;
+                if (should_log_debug_anomaly()) {
+                    ESP_LOGI(kTag, "Requesting missing ATEM init packet %u (attempt %u)",
+                             requested_init_packet_id,
+                             static_cast<unsigned>(init_request_attempts) + 1);
+                }
+                send_atem_packet(0x08, 0, nullptr, 0, 0,
+                                 static_cast<uint8_t>(previous_id >> 8),
+                                 static_cast<uint8_t>(previous_id), 0x01);
+                init_request_sent_ms = millis_now();
+                ++init_request_attempts;
             }
-            send_atem_packet(0x08, 0, nullptr, 0, 0,
-                             static_cast<uint8_t>(previous_id >> 8),
-                             static_cast<uint8_t>(previous_id), 0x01);
-            init_request_sent_ms = millis_now();
-            if (init_request_attempts < UINT8_MAX) ++init_request_attempts;
         }
         if (waiting_for_init_packet) return;
     }
@@ -622,6 +637,7 @@ void request_missing_initialization_packet() {
 
 void clear_out_of_order_packets() {
     out_of_order_occupied = 0;
+    out_of_order_gap_started_ms = 0;
 }
 
 void process_ordered_atem_packet(const uint8_t* packet, size_t packet_size, uint16_t packet_id) {
@@ -633,7 +649,7 @@ void process_ordered_atem_packet(const uint8_t* packet, size_t packet_size, uint
         init_payload_seen = true;
         init_last_packet_id = packet_id;
     }
-    if (packet_size > 12 && packet_size <= kAtemBufferedPacketSize)
+    if (packet_size > 12 && packet_size <= kAtemMaxPacketSize)
         process_atem_payload(packet, packet_size);
     request_missing_initialization_packet();
 }
@@ -659,6 +675,116 @@ bool store_pending_atem_packet(const uint8_t* packet, size_t packet_size, uint16
         }
     }
     return false;
+}
+
+void drain_pending_atem_packets() {
+    while (true) {
+        const uint16_t next_packet_id = static_cast<uint16_t>(
+            (last_remote_packet_id + 1) % kAtemPacketIdModulus);
+        PendingAtemPacket* pending = find_pending_atem_packet(next_packet_id);
+        if (!pending) break;
+        const uint16_t pending_packet_id = read_be16(pending->bytes.data() + 10);
+        const size_t pending_packet_size =
+            ((pending->bytes[0] & 0x07) << 8) | pending->bytes[1];
+        last_remote_packet_id = pending_packet_id;
+        process_ordered_atem_packet(pending->bytes.data(), pending_packet_size,
+                                    pending_packet_id);
+        const size_t slot_index = static_cast<size_t>(pending - out_of_order_packets.data());
+        out_of_order_occupied &= ~(uint32_t{1} << slot_index);
+    }
+}
+
+void discard_stale_pending_atem_packets() {
+    for (size_t index = 0; index < out_of_order_packets.size(); ++index) {
+        const uint32_t slot = uint32_t{1} << index;
+        if (!(out_of_order_occupied & slot)) continue;
+        const uint16_t packet_id = read_be16(out_of_order_packets[index].bytes.data() + 10);
+        const uint16_t distance = static_cast<uint16_t>(
+            (packet_id + kAtemPacketIdModulus - last_remote_packet_id) %
+            kAtemPacketIdModulus);
+        if (distance > kAtemPacketIdModulus / 2)
+            out_of_order_occupied &= ~slot;
+    }
+}
+
+bool skip_gap_to_packet(uint16_t packet_id, const char* reason) {
+    const uint16_t distance = static_cast<uint16_t>(
+        (packet_id + kAtemPacketIdModulus - last_remote_packet_id) %
+        kAtemPacketIdModulus);
+    if (distance <= 1 || distance > kAtemPacketIdModulus / 2) return false;
+
+    ++atem_skipped_gap_count;
+    const uint32_t now = millis_now();
+    if (!last_gap_warning_ms || now - last_gap_warning_ms >= 1000) {
+        ESP_LOGW(kTag, "Skipping ATEM sequence gap (%s): last=%u next=%u missing=%u",
+                 reason, static_cast<unsigned>(last_remote_packet_id),
+                 static_cast<unsigned>(packet_id), static_cast<unsigned>(distance - 1));
+        last_gap_warning_ms = now;
+    }
+    last_remote_packet_id = static_cast<uint16_t>(
+        (packet_id + kAtemPacketIdModulus - 1) % kAtemPacketIdModulus);
+    return true;
+}
+
+bool skip_to_lowest_pending_packet(const char* reason) {
+    PendingAtemPacket* lowest = nullptr;
+    uint16_t lowest_distance = kAtemPacketIdModulus;
+    for (size_t index = 0; index < out_of_order_packets.size(); ++index) {
+        if (!(out_of_order_occupied & (uint32_t{1} << index))) continue;
+        const uint16_t packet_id = read_be16(out_of_order_packets[index].bytes.data() + 10);
+        const uint16_t distance = static_cast<uint16_t>(
+            (packet_id + kAtemPacketIdModulus - last_remote_packet_id) %
+            kAtemPacketIdModulus);
+        if (distance > 0 && distance <= kAtemPacketIdModulus / 2 &&
+            distance < lowest_distance) {
+            lowest = &out_of_order_packets[index];
+            lowest_distance = distance;
+        }
+    }
+    if (!lowest) return false;
+
+    const uint16_t packet_id = read_be16(lowest->bytes.data() + 10);
+    skip_gap_to_packet(packet_id, reason);
+    drain_pending_atem_packets();
+    return true;
+}
+
+uint16_t lowest_pending_distance() {
+    uint16_t lowest_distance = kAtemPacketIdModulus;
+    for (size_t index = 0; index < out_of_order_packets.size(); ++index) {
+        if (!(out_of_order_occupied & (uint32_t{1} << index))) continue;
+        const uint16_t packet_id = read_be16(out_of_order_packets[index].bytes.data() + 10);
+        const uint16_t distance = static_cast<uint16_t>(
+            (packet_id + kAtemPacketIdModulus - last_remote_packet_id) %
+            kAtemPacketIdModulus);
+        if (distance > 0 && distance <= kAtemPacketIdModulus / 2 &&
+            distance < lowest_distance)
+            lowest_distance = distance;
+    }
+    return lowest_distance;
+}
+
+void update_out_of_order_gap_timer() {
+    if (!out_of_order_occupied) {
+        out_of_order_gap_started_ms = 0;
+        return;
+    }
+    const uint16_t next_packet_id = static_cast<uint16_t>(
+        (last_remote_packet_id + 1) % kAtemPacketIdModulus);
+    if (find_pending_atem_packet(next_packet_id)) {
+        out_of_order_gap_started_ms = 0;
+    } else if (!out_of_order_gap_started_ms) {
+        out_of_order_gap_started_ms = millis_now();
+    }
+}
+
+void recover_timed_out_out_of_order_gap() {
+    update_out_of_order_gap_timer();
+    if (out_of_order_gap_started_ms &&
+        millis_now() - out_of_order_gap_started_ms >= kOutOfOrderGapTimeoutMs) {
+        skip_to_lowest_pending_packet("timeout");
+        update_out_of_order_gap_timer();
+    }
 }
 
 void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
@@ -689,21 +815,8 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
     if (distance == 1) {
         last_remote_packet_id = remote_packet_id;
         process_ordered_atem_packet(packet, packet_size, remote_packet_id);
-
-        while (true) {
-            const uint16_t next_packet_id = static_cast<uint16_t>(
-                (last_remote_packet_id + 1) % kAtemPacketIdModulus);
-            PendingAtemPacket* pending = find_pending_atem_packet(next_packet_id);
-            if (!pending) break;
-            const uint16_t pending_packet_id = read_be16(pending->bytes.data() + 10);
-            const size_t pending_packet_size =
-                ((pending->bytes[0] & 0x07) << 8) | pending->bytes[1];
-            last_remote_packet_id = pending_packet_id;
-            process_ordered_atem_packet(pending->bytes.data(), pending_packet_size,
-                                        pending_packet_id);
-            const size_t slot_index = static_cast<size_t>(pending - out_of_order_packets.data());
-            out_of_order_occupied &= ~(uint32_t{1} << slot_index);
-        }
+        drain_pending_atem_packets();
+        update_out_of_order_gap_timer();
         return;
     }
 
@@ -719,22 +832,62 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
     if (distance <= kAtemOutOfOrderCapacity) {
         ++atem_out_of_order_packet_count;
         const bool already_buffered = find_pending_atem_packet(remote_packet_id) != nullptr;
-        const bool stored = store_pending_atem_packet(packet, packet_size, remote_packet_id);
-        if (should_log_debug_anomaly()) {
-            ESP_LOGW(kTag, "%s out-of-order ATEM packet %u; waiting for packet %u",
-                     stored ? "Buffered" : (already_buffered ? "Already buffered" : "Buffer full for"),
-                     static_cast<unsigned>(remote_packet_id),
-                     static_cast<unsigned>((last_remote_packet_id + 1) % kAtemPacketIdModulus));
+        if (already_buffered) {
+            update_out_of_order_gap_timer();
+            return;
         }
+
+        const char* recovery_reason = nullptr;
+        if (packet_size > kAtemBufferedPacketSize) {
+            recovery_reason = "packet exceeds reorder storage";
+        } else if (store_pending_atem_packet(packet, packet_size, remote_packet_id)) {
+            update_out_of_order_gap_timer();
+            return;
+        } else {
+            recovery_reason = "reorder buffer full";
+        }
+
+        if (distance < lowest_pending_distance()) {
+            skip_gap_to_packet(remote_packet_id, recovery_reason);
+            last_remote_packet_id = remote_packet_id;
+            process_ordered_atem_packet(packet, packet_size, remote_packet_id);
+            drain_pending_atem_packets();
+            discard_stale_pending_atem_packets();
+            update_out_of_order_gap_timer();
+            return;
+        }
+        skip_to_lowest_pending_packet(recovery_reason);
     } else {
         ++atem_out_of_order_packet_count;
-        if (should_log_debug_anomaly()) {
-            ESP_LOGW(kTag, "ATEM packet gap exceeds buffer: last=%u received=%u distance=%u",
-                     static_cast<unsigned>(last_remote_packet_id),
-                     static_cast<unsigned>(remote_packet_id),
-                     static_cast<unsigned>(distance));
+        if (distance < lowest_pending_distance()) {
+            skip_gap_to_packet(remote_packet_id, "sequence distance exceeded buffer");
+            last_remote_packet_id = remote_packet_id;
+            process_ordered_atem_packet(packet, packet_size, remote_packet_id);
+            drain_pending_atem_packets();
+            discard_stale_pending_atem_packets();
+            update_out_of_order_gap_timer();
+            return;
         }
+        skip_to_lowest_pending_packet("sequence distance exceeded buffer");
     }
+
+    const uint16_t updated_distance = static_cast<uint16_t>(
+        (remote_packet_id + kAtemPacketIdModulus - last_remote_packet_id) %
+        kAtemPacketIdModulus);
+    if (updated_distance == 0 || updated_distance > kAtemPacketIdModulus / 2) {
+        ++atem_duplicate_packet_count;
+    } else if (updated_distance == 1) {
+        last_remote_packet_id = remote_packet_id;
+        process_ordered_atem_packet(packet, packet_size, remote_packet_id);
+        drain_pending_atem_packets();
+    } else {
+        skip_gap_to_packet(remote_packet_id, "unrecoverable sequence gap");
+        last_remote_packet_id = remote_packet_id;
+        process_ordered_atem_packet(packet, packet_size, remote_packet_id);
+        drain_pending_atem_packets();
+    }
+    discard_stale_pending_atem_packets();
+    update_out_of_order_gap_timer();
 }
 
 void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockaddr_in& source) {
@@ -809,7 +962,7 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
     }
 
     if (!(flags & (0x02 | 0x01)) && packet_size > 12 &&
-               packet_size <= kAtemBufferedPacketSize) {
+               packet_size <= kAtemMaxPacketSize) {
         process_atem_payload(packet, packet_size);
     }
     record_atem_packet("RX");
@@ -900,7 +1053,7 @@ void report_atem_health() {
     ESP_LOGI(kTag,
              "Health: heap=%u min_heap=%u largest_block=%u RSSI=%d dBm send_failures=%u ENOMEM=%u "
              "reconnects(timeout/wifi/manual)=%u/%u/%u ATEM_stack_highwater=%u "
-             "ATEM_packets(rx/tx/duplicate/reordered)=%u/%u/%u/%u",
+             "ATEM_packets(rx/tx/duplicate/reordered)=%u/%u/%u/%u skipped_gaps=%u",
              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
              static_cast<unsigned>(esp_get_minimum_free_heap_size()),
              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)), rssi,
@@ -915,7 +1068,8 @@ void report_atem_health() {
              static_cast<unsigned>(atem_rx_packet_count),
              static_cast<unsigned>(atem_tx_packet_count),
              static_cast<unsigned>(atem_duplicate_packet_count),
-             static_cast<unsigned>(atem_out_of_order_packet_count));
+             static_cast<unsigned>(atem_out_of_order_packet_count),
+             static_cast<unsigned>(atem_skipped_gap_count));
 }
 
 void run_atem_client() {
@@ -970,6 +1124,7 @@ void atem_client_task(void*) {
     reset_atem_session(false);
     set_state(1);
     uint32_t last_health_report_ms = millis_now();
+    uint32_t last_init_request_check_ms = millis_now();
 
     while (true) {
         if (wifi_lost.exchange(false)) {
@@ -991,6 +1146,12 @@ void atem_client_task(void*) {
                 if (!atem_connected) set_state(2);
                 run_atem_client();
                 const uint32_t now = millis_now();
+                if (init_payload_seen && !atem_initialized &&
+                    now - last_init_request_check_ms >= kInitRequestCheckMs) {
+                    request_missing_initialization_packet();
+                    last_init_request_check_ms = now;
+                }
+                recover_timed_out_out_of_order_gap();
                 if (atem_socket >= 0 && now - last_atem_packet_ms >= 5000) {
                     ++timeout_reconnect_count;
                     ESP_LOGW(kTag, "No valid ATEM packet for 5000 ms; reconnecting");
@@ -1045,8 +1206,8 @@ esp_err_t tally_test_server_set_enabled(bool enabled) {
 }
 
 esp_err_t tally_debug_logging_set_enabled(bool enabled) {
-    debug_logging_mode.store(enabled);
     debug_logging_started_ms.store(enabled ? millis_now() : 0);
+    debug_logging_mode.store(enabled);
     return ESP_OK;
 }
 
@@ -1066,6 +1227,43 @@ uint8_t tally_debug_state() {
     return (flags & kTallyProgram) ? 2 : ((flags & kTallyPreview) ? 1 : 0);
 }
 
+namespace {
+
+void validate_stored_gpio_settings() {
+    bool changed = false;
+#if CONFIG_IDF_TARGET_ESP32C3
+    if (tally_settings.battery_adc_gpio > 4) {
+        ESP_LOGW(kTag, "Stored battery ADC GPIO %u is invalid for ESP32-C3; using default GPIO 3",
+                 static_cast<unsigned>(tally_settings.battery_adc_gpio));
+        tally_settings.battery_adc_gpio = 3;
+        changed = true;
+    }
+
+    const uint8_t configured_neopixel_gpio = CONFIG_TALLY_NEOPIXEL_GPIO;
+    if (tally_settings.neopixel_gpio > 21 ||
+        (tally_settings.neopixel_gpio >= 12 && tally_settings.neopixel_gpio <= 21)) {
+        ESP_LOGW(kTag, "Stored NeoPixel GPIO %u is unavailable on ESP32-C3; using default GPIO %u",
+                 static_cast<unsigned>(tally_settings.neopixel_gpio),
+                 static_cast<unsigned>(configured_neopixel_gpio));
+        tally_settings.neopixel_gpio = configured_neopixel_gpio;
+        changed = true;
+    }
+    if (tally_settings.neopixel_gpio == 2 || tally_settings.neopixel_gpio == 8 ||
+        tally_settings.neopixel_gpio == 9) {
+        ESP_LOGW(kTag, "NeoPixel GPIO %u is a strapping pin; verify external circuitry",
+                 static_cast<unsigned>(tally_settings.neopixel_gpio));
+    }
+#endif
+    if (changed) {
+        const esp_err_t result = tally_settings_save();
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "Could not save corrected GPIO settings: %s", esp_err_to_name(result));
+        }
+    }
+}
+
+}  // namespace
+
 extern "C" void app_main(void) {
     ESP_LOGI(kTag, "Boot reset reason: %d", static_cast<int>(esp_reset_reason()));
     esp_err_t nvs_result = nvs_flash_init();
@@ -1076,6 +1274,7 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(nvs_result);
 
     tally_settings_init();
+    validate_stored_gpio_settings();
     test_server_mode.store(tally_settings.test_server_enabled);
     const bool persisted_debug_logging = tally_settings.debug_logging_enabled;
     tally_settings.debug_logging_enabled = false;
@@ -1178,7 +1377,7 @@ extern "C" void app_main(void) {
                     }
                 }
             }
-            continue;
         }
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
