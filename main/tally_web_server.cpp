@@ -254,7 +254,7 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
 }
 
 esp_err_t diag_handler(httpd_req_t* request) {
-    static char diagnostics[8192];
+    static char diagnostics[24576];
     const size_t length =
         tally_atem_diag_snapshot(diagnostics, sizeof(diagnostics));
     httpd_resp_set_type(request, "text/plain; charset=utf-8");

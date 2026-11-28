@@ -7,8 +7,11 @@
 #include <initializer_list>
 #include <atomic>
 #include <cstdio>
+#include <cstdarg>
+#include <new>
 #include <unistd.h>
 
+#include "apps/ping/ping_sock.h"
 #include "driver/rmt.h"
 #include "esp_attr.h"
 #include "esp_event.h"
@@ -23,7 +26,9 @@
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/etharp.h"
+#include "lwip/netif.h"
 #include "lwip/sockets.h"
+#include "lwip/tcpip.h"
 #include "esp_netif_net_stack.h"
 #include "nvs_flash.h"
 #include "improv_idf.hpp"
@@ -52,13 +57,19 @@ constexpr uint32_t kInitRequestCheckMs = 200;
 constexpr uint32_t kOutOfOrderGapTimeoutMs = 500;
 constexpr uint32_t kHealthReportIntervalMs = 30000;
 constexpr uint32_t kAtemSilentRestartMs = 10 * 60 * 1000;
-constexpr uint32_t kHandshakeTimeoutMs = 5000;
 constexpr uint32_t kRoamScanIntervalMs = 60000;
 constexpr int kRoamRssiThreshold = -72;
 constexpr int kRoamImprovementDb = 8;
 constexpr uint32_t kDebugAutoDisableMs = 10 * 60 * 1000;
 constexpr size_t kMaxNeopixelCount = 64;
 constexpr size_t kDiagnosticEventCount = 32;
+constexpr uint32_t kSilentTimeoutEstablishedMs = 3000;
+constexpr uint32_t kSilentTimeoutHandshakeMs = 5000;
+constexpr uint32_t kFreshPortWindowMs = 10 * 60 * 1000;
+constexpr size_t kFreshPortLimit = 3;
+constexpr uint32_t kHoldTallyOnReconnectMs = 15000;
+constexpr size_t kPacketHeaderRingSize = 128;
+constexpr size_t kAckDeduplicationRingSize = 32;
 
 struct RestartRecord {
     uint32_t magic;
@@ -69,6 +80,37 @@ struct DiagnosticEvent {
     uint32_t time_ms;
     char type[12];
     char details[96];
+};
+
+struct PacketHeaderRecord {
+    uint32_t time_ms;
+    char direction;
+    uint8_t flags;
+    uint16_t packet_id;
+    uint16_t ack_id;
+    uint16_t session_id;
+    uint16_t length;
+    char command[5];
+};
+
+struct SessionRecord {
+    uint32_t start_ms;
+    uint32_t lifetime_s;
+    uint32_t reconnect_delay_ms;
+    uint16_t last_rx_id;
+    char cause[32];
+};
+
+struct PingContext {
+    uint8_t replies = 0;
+    uint8_t lost = 0;
+    uint32_t total_rtt_ms = 0;
+    char cause[32]{};
+};
+
+struct AckRecord {
+    uint16_t packet_id = 0;
+    uint32_t time_ms = 0;
 };
 
 RTC_NOINIT_ATTR RestartRecord restart_record;
@@ -144,6 +186,40 @@ std::array<DiagnosticEvent, kDiagnosticEventCount> diagnostic_events{};
 size_t next_diagnostic_event = 0;
 size_t diagnostic_event_count = 0;
 portMUX_TYPE diagnostic_events_mux = portMUX_INITIALIZER_UNLOCKED;
+std::array<PacketHeaderRecord, kPacketHeaderRingSize> packet_header_ring{};
+size_t next_packet_header = 0;
+size_t packet_header_count = 0;
+portMUX_TYPE packet_header_mux = portMUX_INITIALIZER_UNLOCKED;
+std::array<SessionRecord, 16> session_history{};
+size_t next_session_record = 0;
+size_t session_record_count = 0;
+portMUX_TYPE session_history_mux = portMUX_INITIALIZER_UNLOCKED;
+std::array<uint32_t, kFreshPortLimit> fresh_port_timestamps{};
+size_t fresh_port_timestamp_count = 0;
+bool fresh_port_pending = false;
+bool reused_port_after_drop = false;
+uint32_t session_started_ms = 0;
+uint32_t session_ended_ms = 0;
+size_t pending_session_record = 0;
+bool pending_session_delay = false;
+uint32_t last_session_lifetime_s = 0;
+uint32_t hold_tally_until_ms = 0;
+bool hold_tally_active = false;
+std::array<AckRecord, kAckDeduplicationRingSize> recent_ack_ids{};
+size_t next_recent_ack_id = 0;
+uint8_t consecutive_init_acks = 0;
+std::array<uint32_t, 64> duplicate_timestamps{};
+size_t next_duplicate_timestamp = 0;
+size_t duplicate_timestamp_count = 0;
+std::atomic<bool> duplicate_storm_pending{false};
+std::atomic<uint32_t> ack_retry_ok{0};
+std::atomic<uint32_t> ack_dropped{0};
+portMUX_TYPE ping_result_mux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t last_ping_ok = 0;
+uint32_t last_ping_lost = 0;
+uint32_t last_ping_avg_rtt_ms = 0;
+uint32_t last_ping_time_ms = 0;
+bool last_arp_entry_found = false;
 uint32_t last_battery_sample_ms = 0;
 uint32_t battery_warning_started_ms = 0;
 std::atomic<bool> atem_connected{false};
@@ -200,7 +276,7 @@ uint16_t read_be16(const uint8_t* data) {
 }
 
 uint32_t millis_now();
-void reset_atem_session(bool close_socket);
+void reset_atem_session(bool close_socket, bool hold_tally = false);
 void handle_handshake_failure(const char* cause, bool close_socket_immediately = false);
 
 void record_atem_packet(const char* direction) {
@@ -238,12 +314,203 @@ void record_diagnostic_event(const char* type, const char* details) {
     portEXIT_CRITICAL(&diagnostic_events_mux);
 }
 
+void record_packet_header(char direction, const uint8_t* packet, size_t packet_size) {
+    PacketHeaderRecord record{};
+    record.time_ms = millis_now();
+    record.direction = direction;
+    record.length = static_cast<uint16_t>(std::min<size_t>(packet_size, UINT16_MAX));
+    if (packet && packet_size >= 12) {
+        record.flags = packet[0] >> 3;
+        record.session_id = read_be16(packet + 2);
+        record.ack_id = read_be16(packet + 4);
+        record.packet_id = read_be16(packet + 10);
+        if (packet_size >= 20) {
+            memcpy(record.command, packet + 16, 4);
+            record.command[4] = '\0';
+        }
+    }
+
+    portENTER_CRITICAL(&packet_header_mux);
+    packet_header_ring[next_packet_header] = record;
+    next_packet_header = (next_packet_header + 1) % packet_header_ring.size();
+    packet_header_count = std::min(packet_header_count + 1, packet_header_ring.size());
+    portEXIT_CRITICAL(&packet_header_mux);
+}
+
+void record_session_end(const char* cause) {
+    if (!session_started_ms) return;
+    const uint32_t now = millis_now();
+    SessionRecord record{};
+    record.start_ms = session_started_ms;
+    record.lifetime_s = (now - session_started_ms) / 1000;
+    record.reconnect_delay_ms = UINT32_MAX;
+    record.last_rx_id = static_cast<uint16_t>(last_rx_packet_id);
+    strlcpy(record.cause, cause, sizeof(record.cause));
+
+    portENTER_CRITICAL(&session_history_mux);
+    const size_t slot = next_session_record;
+    session_history[slot] = record;
+    next_session_record = (next_session_record + 1) % session_history.size();
+    session_record_count = std::min(session_record_count + 1, session_history.size());
+    portEXIT_CRITICAL(&session_history_mux);
+
+    pending_session_record = slot;
+    pending_session_delay = true;
+    session_ended_ms = now;
+    last_session_lifetime_s = record.lifetime_s;
+    session_started_ms = 0;
+}
+
+void record_session_start(uint32_t now, uint16_t packet_id) {
+    if (pending_session_delay) {
+        const uint32_t delay = now - session_ended_ms;
+        portENTER_CRITICAL(&session_history_mux);
+        session_history[pending_session_record].reconnect_delay_ms = delay;
+        portEXIT_CRITICAL(&session_history_mux);
+        pending_session_delay = false;
+    }
+    session_started_ms = now;
+    last_rx_packet_id = packet_id;
+}
+
+void dump_packet_header_ring(size_t count) {
+    std::array<PacketHeaderRecord, 24> snapshot{};
+    size_t copied = 0;
+    portENTER_CRITICAL(&packet_header_mux);
+    copied = std::min({count, packet_header_count, snapshot.size()});
+    const size_t first = (next_packet_header + packet_header_ring.size() -
+                          copied) % packet_header_ring.size();
+    for (size_t index = 0; index < copied; ++index)
+        snapshot[index] = packet_header_ring[(first + index) % packet_header_ring.size()];
+    portEXIT_CRITICAL(&packet_header_mux);
+
+    for (size_t index = 0; index < copied; ++index) {
+        const PacketHeaderRecord& packet = snapshot[index];
+        ESP_LOGW(kTag, "Packet %c t=%u flags=0x%02x id=%u ack=%u session=0x%04x "
+                      "len=%u cmd=%.4s",
+                 packet.direction, static_cast<unsigned>(packet.time_ms),
+                 packet.flags, static_cast<unsigned>(packet.packet_id),
+                 static_cast<unsigned>(packet.ack_id),
+                 static_cast<unsigned>(packet.session_id),
+                 static_cast<unsigned>(packet.length), packet.command);
+    }
+}
+
+void log_arp_entry() {
+    bool found = false;
+    if (station_netif) {
+        auto* netif = static_cast<struct netif*>(esp_netif_get_netif_impl(station_netif));
+        if (netif) {
+            ip4_addr_t target{};
+            target.addr = switcher_address.sin_addr.s_addr;
+            struct eth_addr* hardware_address = nullptr;
+            const ip4_addr_t* resolved_address = nullptr;
+            LOCK_TCPIP_CORE();
+            found = etharp_find_addr(netif, &target, &hardware_address,
+                                     &resolved_address) >= 0;
+            UNLOCK_TCPIP_CORE();
+        }
+    }
+    portENTER_CRITICAL(&ping_result_mux);
+    last_arp_entry_found = found;
+    portEXIT_CRITICAL(&ping_result_mux);
+    ESP_LOGI(kTag, "ATEM ARP entry: %s", found ? "present" : "missing");
+    record_diagnostic_event("arp", found ? "entry present" : "entry missing");
+}
+
+void ping_success(esp_ping_handle_t handle, void* argument) {
+    auto* context = static_cast<PingContext*>(argument);
+    uint32_t elapsed_ms = 0;
+    if (esp_ping_get_profile(handle, ESP_PING_PROF_TIMEGAP, &elapsed_ms,
+                             sizeof(elapsed_ms)) == ESP_OK) {
+        ++context->replies;
+        context->total_rtt_ms += elapsed_ms;
+    }
+}
+
+void ping_timeout(esp_ping_handle_t, void* argument) {
+    auto* context = static_cast<PingContext*>(argument);
+    ++context->lost;
+}
+
+void ping_end(esp_ping_handle_t handle, void* argument) {
+    auto* context = static_cast<PingContext*>(argument);
+    const uint32_t average = context->replies
+                                 ? context->total_rtt_ms / context->replies
+                                 : 0;
+    portENTER_CRITICAL(&ping_result_mux);
+    last_ping_ok = context->replies;
+    last_ping_lost = context->lost;
+    last_ping_avg_rtt_ms = average;
+    last_ping_time_ms = millis_now();
+    portEXIT_CRITICAL(&ping_result_mux);
+    ESP_LOGI(kTag, "ATEM ping complete (%s): ok=%u lost=%u avg_rtt_ms=%u",
+             context->cause,
+             static_cast<unsigned>(context->replies),
+             static_cast<unsigned>(context->lost), static_cast<unsigned>(average));
+    char details[48]{};
+    snprintf(details, sizeof(details), "%.12s ok=%u lost=%u rtt=%u ms",
+             context->cause,
+             static_cast<unsigned>(context->replies),
+             static_cast<unsigned>(context->lost), static_cast<unsigned>(average));
+    record_diagnostic_event("ping", details);
+    esp_ping_delete_session(handle);
+    delete context;
+}
+
+void start_connectivity_diagnostic_ping(const char* cause) {
+    log_arp_entry();
+    portENTER_CRITICAL(&ping_result_mux);
+    last_ping_ok = 0;
+    last_ping_lost = 0;
+    last_ping_avg_rtt_ms = 0;
+    last_ping_time_ms = 0;
+    portEXIT_CRITICAL(&ping_result_mux);
+    record_diagnostic_event("ping_start", cause);
+    auto* context = new (std::nothrow) PingContext{};
+    if (!context) {
+        ESP_LOGW(kTag, "Could not allocate ATEM ping context");
+        record_diagnostic_event("ping", "allocation failed");
+        return;
+    }
+    strlcpy(context->cause, cause, sizeof(context->cause));
+    esp_ping_config_t config = ESP_PING_DEFAULT_CONFIG();
+    config.count = 3;
+    config.interval_ms = 300;
+    config.timeout_ms = 300;
+    config.target_addr.type = IPADDR_TYPE_V4;
+    ip_addr_set_ip4_u32(&config.target_addr, switcher_address.sin_addr.s_addr);
+
+    esp_ping_callbacks_t callbacks{};
+    callbacks.cb_args = context;
+    callbacks.on_ping_success = ping_success;
+    callbacks.on_ping_timeout = ping_timeout;
+    callbacks.on_ping_end = ping_end;
+    esp_ping_handle_t handle = nullptr;
+    esp_err_t result = esp_ping_new_session(&config, &callbacks, &handle);
+    if (result == ESP_OK) result = esp_ping_start(handle);
+    if (result != ESP_OK) {
+        ESP_LOGW(kTag, "Could not start ATEM ping (%s): %s", cause,
+                 esp_err_to_name(result));
+        record_diagnostic_event("ping", "start failed");
+        if (handle) esp_ping_delete_session(handle);
+        delete context;
+    }
+}
+
 void refresh_recent_counters(uint32_t now) {
     if (!last_ack_duplicate_window_ms ||
         now - last_ack_duplicate_window_ms >= 10000) {
         last_ack_duplicate_window_ms = now;
         ack_tx_recent = 0;
-        duplicate_recent = 0;
+    }
+    duplicate_recent = 0;
+    for (size_t index = 0; index < duplicate_timestamp_count; ++index) {
+        const uint32_t timestamp =
+            duplicate_timestamps[(next_duplicate_timestamp +
+                                  duplicate_timestamps.size() - 1 - index) %
+                                 duplicate_timestamps.size()];
+        if (now - timestamp <= 10000) ++duplicate_recent;
     }
 }
 
@@ -254,8 +521,14 @@ void record_ack_sent() {
 }
 
 void record_duplicate_received() {
-    refresh_recent_counters(millis_now());
-    ++duplicate_recent;
+    const uint32_t now = millis_now();
+    duplicate_timestamps[next_duplicate_timestamp] = now;
+    next_duplicate_timestamp =
+        (next_duplicate_timestamp + 1) % duplicate_timestamps.size();
+    duplicate_timestamp_count =
+        std::min(duplicate_timestamp_count + 1, duplicate_timestamps.size());
+    refresh_recent_counters(now);
+    if (duplicate_recent > 50) duplicate_storm_pending.store(true);
 }
 
 void log_reconnect_diagnostic(const char* cause) {
@@ -273,12 +546,16 @@ void log_reconnect_diagnostic(const char* cause) {
     }
     const uint32_t now = millis_now();
     refresh_recent_counters(now);
+    const uint32_t session_lifetime_s =
+        session_started_ms ? (now - session_started_ms) / 1000 : last_session_lifetime_s;
     ESP_LOGW(kTag,
-             "Reconnect: cause=%s ms_since_last_rx=%u last_rx_id=%u last_rx_flags=0x%02x "
+             "Reconnect: cause=%s session_lifetime_s=%u ms_since_last_rx=%u "
+             "last_rx_id=%u last_rx_flags=0x%02x "
              "ack_10s=%u dup_10s=%u hello_tx_since_good=%u hello_rx_since_good=%u "
              "hello_payload=%02x%02x%02x%02x%02x%02x%02x%02x "
              "BSSID=%s channel=%d RSSI=%d",
-             cause, static_cast<unsigned>(last_rx_ms ? now - last_rx_ms : now),
+             cause, static_cast<unsigned>(session_lifetime_s),
+             static_cast<unsigned>(last_rx_ms ? now - last_rx_ms : now),
              static_cast<unsigned>(last_rx_packet_id), static_cast<unsigned>(last_rx_flags),
              static_cast<unsigned>(ack_tx_recent), static_cast<unsigned>(duplicate_recent),
              static_cast<unsigned>(hello_tx_since_good),
@@ -687,6 +964,19 @@ void initialize_wifi() {
 
 void record_atem_send_failure(const char* operation, int error);
 
+bool suppress_duplicate_ack(uint16_t packet_id) {
+    const uint32_t now = millis_now();
+    for (const AckRecord& record : recent_ack_ids) {
+        if (record.time_ms && record.packet_id == packet_id &&
+            now - record.time_ms < 20) {
+            return true;
+        }
+    }
+    recent_ack_ids[next_recent_ack_id] = {packet_id, now};
+    next_recent_ack_id = (next_recent_ack_id + 1) % recent_ack_ids.size();
+    return false;
+}
+
 bool send_atem_packet(uint8_t flags, uint16_t packet_id, const uint8_t* payload, size_t payload_size,
                       uint8_t header_byte_9 = 0, uint8_t header_byte_6 = 0,
                       uint8_t header_byte_7 = 0, uint8_t header_byte_8 = 0) {
@@ -708,19 +998,38 @@ bool send_atem_packet(uint8_t flags, uint16_t packet_id, const uint8_t* payload,
     }
     if (payload_size > 0) memcpy(packet + 12, payload, payload_size);
 
-    const int sent = sendto(atem_socket, packet, packet_size, 0,
-                            reinterpret_cast<const sockaddr*>(&switcher_address), sizeof(switcher_address));
-    if (sent < 0) {
-        record_atem_send_failure("ATEM UDP send", errno);
+    const bool is_ack = flags == 0x10;
+    for (uint8_t attempt = 0; attempt < (is_ack ? 4 : 1); ++attempt) {
+        const int sent = sendto(atem_socket, packet, packet_size, 0,
+                                reinterpret_cast<const sockaddr*>(&switcher_address),
+                                sizeof(switcher_address));
+        if (sent == static_cast<int>(packet_size)) {
+            record_atem_packet("TX");
+            record_packet_header('T', packet, packet_size);
+            if (is_ack) {
+                record_ack_sent();
+                if (attempt) ++ack_retry_ok;
+                if (!atem_initialized && ++consecutive_init_acks >= 8) {
+                    consecutive_init_acks = 0;
+                    taskYIELD();
+                }
+            } else {
+                consecutive_init_acks = 0;
+            }
+            return true;
+        }
+
+        const int send_error = sent < 0 ? errno : 0;
+        if (is_ack && sent < 0 && send_error == ENOMEM && attempt < 3) {
+            vTaskDelay(1);
+            continue;
+        }
+        if (is_ack) ++ack_dropped;
+        record_atem_send_failure(sent < 0 ? "ATEM UDP send" : "Short ATEM UDP send",
+                                 send_error);
         return false;
-    } else if (static_cast<size_t>(sent) != packet_size) {
-        record_atem_send_failure("Short ATEM UDP send", errno);
-        return false;
-    } else {
-        record_atem_packet("TX");
-        if (flags == 0x10) record_ack_sent();
-        return true;
     }
+    return false;
 }
 
 void send_hello() {
@@ -1020,8 +1329,10 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
         init_payload_seen = true;
         init_last_packet_id = remote_packet_id;
     }
-    if (kAckDuringInit || init_payload_seen)
-        send_atem_packet(0x10, remote_packet_id, nullptr, 0);
+    if (kAckDuringInit || init_payload_seen) {
+        if (!suppress_duplicate_ack(remote_packet_id))
+            send_atem_packet(0x10, remote_packet_id, nullptr, 0);
+    }
 
     if (remote_packet_id >= kAtemPacketIdModulus) {
         if (should_log_debug_anomaly()) {
@@ -1122,6 +1433,7 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
 void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockaddr_in& source) {
     (void)source;
     last_rx_ms = millis_now();
+    record_packet_header('R', packet, packet_size);
     if (packet_size < 12) {
         record_atem_packet("RX");
         if (should_log_debug_anomaly()) {
@@ -1189,8 +1501,9 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
         }
         if (was_connected) {
             log_reconnect_diagnostic("hello flag received while connected");
+            record_session_end("hello while connected");
             record_atem_packet("RX");
-            reset_atem_session(false);
+            reset_atem_session(false, true);
             set_state(2);
             return;
         }
@@ -1211,9 +1524,12 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
         remote_sequence_initialized = true;
         last_valid_atem_packet_ms = millis_now();
         last_atem_packet_ms = last_valid_atem_packet_ms;
+        record_session_start(last_valid_atem_packet_ms, remote_packet_id);
         atem_silent_wifi_ms = 0;
         last_silence_check_ms = last_valid_atem_packet_ms;
         handshake_started_ms = 0;
+        hold_tally_active = false;
+        hold_tally_until_ms = 0;
         send_atem_packet(0x10, 0, nullptr, 0, 0x03);
         set_state(3);
         ESP_LOGI(kTag, "ATEM switcher connected");
@@ -1263,6 +1579,7 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
                                 sizeof(switcher_address));
         if (sent == sizeof(response)) {
             record_atem_packet("TX");
+            record_packet_header('T', response, sizeof(response));
         } else {
             record_atem_send_failure("ATEM retransmit response", errno);
         }
@@ -1318,11 +1635,42 @@ bool open_atem_socket() {
              static_cast<unsigned>(ntohs(bound_address.sin_port)),
              tally_settings.switcher_ip, kAtemPort);
     current_local_port = ntohs(bound_address.sin_port);
+    if (fresh_port_pending) {
+        fresh_port_timestamps[fresh_port_timestamp_count++] = millis_now();
+        fresh_port_pending = false;
+        reused_port_after_drop = false;
+    }
     last_atem_packet_ms = millis_now();
     return true;
 }
 
-void reset_atem_session(bool close_socket) {
+bool request_fresh_local_port(const char* cause) {
+    const uint32_t now = millis_now();
+    size_t kept = 0;
+    for (size_t index = 0; index < fresh_port_timestamp_count; ++index) {
+        if (now - fresh_port_timestamps[index] < kFreshPortWindowMs)
+            fresh_port_timestamps[kept++] = fresh_port_timestamps[index];
+    }
+    fresh_port_timestamp_count = kept;
+    if (fresh_port_timestamp_count >= kFreshPortLimit) {
+        ESP_LOGW(kTag, "Keeping UDP port %u for %s; fresh-port limit reached",
+                 static_cast<unsigned>(current_local_port), cause);
+        record_diagnostic_event("port_choice", "reuse; 3 fresh ports in 10 minutes");
+        reused_port_after_drop = true;
+        return false;
+    }
+
+    ESP_LOGI(kTag, "Opening a fresh UDP port for %s (%u of %u in 10 minutes)",
+             cause, static_cast<unsigned>(fresh_port_timestamp_count + 1),
+             static_cast<unsigned>(kFreshPortLimit));
+    record_diagnostic_event("port_choice", "new local UDP port");
+    fresh_port_pending = true;
+    reused_port_after_drop = false;
+    return true;
+}
+
+void reset_atem_session(bool close_socket, bool hold_tally) {
+    const bool preserve_tally = hold_tally || hold_tally_active;
     atem_connected = false;
     local_packet_id = 0;
     session_id = 0x53AB;
@@ -1335,13 +1683,29 @@ void reset_atem_session(bool close_socket) {
     init_request_attempts = 0;
     atem_initialized = false;
     init_last_packet_id = 0;
+    recent_ack_ids.fill({});
+    next_recent_ack_id = 0;
+    consecutive_init_acks = 0;
+    duplicate_timestamps.fill(0);
+    next_duplicate_timestamp = 0;
+    duplicate_timestamp_count = 0;
+    duplicate_recent = 0;
+    duplicate_storm_pending.store(false);
     missed_init_packets.fill(0xFF);
     clear_out_of_order_packets();
-    portENTER_CRITICAL(&tally_flags_mux);
-    tally_flags.fill(0);
-    portEXIT_CRITICAL(&tally_flags_mux);
-    tally_server_reset_flags();
-    stream_is_on_air = false;
+    if (preserve_tally) {
+        if (!hold_tally_active)
+            hold_tally_until_ms = millis_now() + kHoldTallyOnReconnectMs;
+        hold_tally_active = true;
+    } else {
+        hold_tally_active = false;
+        hold_tally_until_ms = 0;
+        portENTER_CRITICAL(&tally_flags_mux);
+        tally_flags.fill(0);
+        portEXIT_CRITICAL(&tally_flags_mux);
+        tally_server_reset_flags();
+        stream_is_on_air = false;
+    }
     last_hello_ms = 0;
     handshake_started_ms = 0;
     last_atem_packet_ms = millis_now();
@@ -1355,6 +1719,7 @@ void reset_atem_session(bool close_socket) {
 }
 
 void handle_handshake_failure(const char* cause, bool close_socket_immediately) {
+    start_connectivity_diagnostic_ping(cause);
     log_reconnect_diagnostic(cause);
     ++consecutive_handshake_failures;
     ++timeout_reconnect_count;
@@ -1364,16 +1729,24 @@ void handle_handshake_failure(const char* cause, bool close_socket_immediately) 
     record_diagnostic_event("handshake_fail", details);
 
     const uint32_t failures = consecutive_handshake_failures;
-    const bool wifi_bounce = failures == 3;
-    const bool close_socket =
-        close_socket_immediately || wifi_bounce || !kReuseLocalPort;
-    const char* action = wifi_bounce ? "bounce Wi-Fi and recreate socket" :
-                         failures >= 4 ? "exponential hello backoff" :
+    const bool prefer_fresh = close_socket_immediately || !kReuseLocalPort ||
+                              (reused_port_after_drop && strstr(cause, "silent"));
+    bool fresh_port = prefer_fresh && request_fresh_local_port(cause);
+    bool wifi_bounce = false;
+    if (!fresh_port && !prefer_fresh && failures == 3)
+        wifi_bounce = request_fresh_local_port("handshake-failure Wi-Fi bounce");
+    const bool port_limit_reached =
+        (prefer_fresh && !fresh_port) ||
+        (!prefer_fresh && failures == 3 && !wifi_bounce);
+    const char* action = fresh_port ? "open fresh UDP port" :
+                         wifi_bounce ? "bounce Wi-Fi and recreate socket" :
+                         failures >= 4 || port_limit_reached ? "exponential hello backoff" :
                          kReuseLocalPort ? "reuse UDP socket for next session" :
                                            "recreate UDP socket for next session";
     ESP_LOGI(kTag, "Reconnect ladder: failure=%u action=%s",
              static_cast<unsigned>(failures), action);
-    reset_atem_session(close_socket);
+    record_session_end(cause);
+    reset_atem_session(fresh_port || wifi_bounce, hold_tally_active);
     if (wifi_bounce) {
         wifi_bounce_pending.store(true);
         gratuitous_arp_pending.store(true);
@@ -1384,8 +1757,8 @@ void handle_handshake_failure(const char* cause, bool close_socket_immediately) 
             ESP_LOGE(kTag, "Could not bounce Wi-Fi after handshake failures: %s",
                      esp_err_to_name(result));
         }
-    } else if (failures >= 4) {
-        const uint32_t exponent = std::min<uint32_t>(failures - 4, 3);
+    } else if (failures >= 4 || port_limit_reached) {
+        const uint32_t exponent = std::min<uint32_t>(failures > 4 ? failures - 4 : 0, 3);
         const uint32_t delay_ms = std::min<uint32_t>(5000U << exponent, 30000U);
         const int32_t jitter_ms = static_cast<int32_t>(esp_random() % 501U) - 250;
         const uint32_t actual_delay_ms = static_cast<uint32_t>(
@@ -1394,6 +1767,78 @@ void handle_handshake_failure(const char* cause, bool close_socket_immediately) 
         ESP_LOGI(kTag, "Next hello round in %u ms",
                  static_cast<unsigned>(actual_delay_ms));
     }
+}
+
+void handle_silent_session_timeout() {
+    const uint32_t now = millis_now();
+    ++timeout_reconnect_count;
+    log_reconnect_diagnostic("ATEM session silent");
+    dump_packet_header_ring(24);
+    record_diagnostic_event("timeout", "ATEM session silent");
+    start_connectivity_diagnostic_ping("silent session timeout");
+    record_session_end("silent timeout");
+
+    const bool fresh_port = request_fresh_local_port("silent session timeout");
+    if (!fresh_port) {
+        ++consecutive_handshake_failures;
+        const uint32_t exponent =
+            std::min<uint32_t>(consecutive_handshake_failures > 1
+                                   ? consecutive_handshake_failures - 1
+                                   : 0,
+                               3);
+        const uint32_t delay_ms = std::min<uint32_t>(5000U << exponent, 30000U);
+        handshake_backoff_until_ms = now + delay_ms;
+        ESP_LOGW(kTag, "Fresh-port limit reached; reusing UDP port after %u ms",
+                 static_cast<unsigned>(delay_ms));
+    }
+
+    reset_atem_session(fresh_port, true);
+    set_state(2);
+}
+
+void clear_held_tally_if_expired(uint32_t now) {
+    if (!hold_tally_active ||
+        static_cast<int32_t>(now - hold_tally_until_ms) < 0) {
+        return;
+    }
+    hold_tally_active = false;
+    hold_tally_until_ms = 0;
+    portENTER_CRITICAL(&tally_flags_mux);
+    tally_flags.fill(0);
+    portEXIT_CRITICAL(&tally_flags_mux);
+    tally_server_reset_flags();
+    stream_is_on_air = false;
+    if (test_server_mode.load()) debug_tally_pending.store(true);
+    set_state(2);
+    output_refresh_pending.store(true);
+    record_diagnostic_event("tally_hold", "expired; flags cleared");
+}
+
+void handle_duplicate_storm() {
+    if (!duplicate_storm_pending.exchange(false)) return;
+    const uint32_t now = millis_now();
+    log_reconnect_diagnostic("dup_storm");
+    record_diagnostic_event("dup_storm", "more than 50 duplicates in 10 seconds");
+    start_connectivity_diagnostic_ping("dup_storm");
+    record_session_end("dup_storm");
+    const bool fresh_port = request_fresh_local_port("dup_storm");
+    reset_atem_session(fresh_port, true);
+    set_state(2);
+    if (!fresh_port) {
+        ++consecutive_handshake_failures;
+        const uint32_t delay_ms = 5000U << std::min<uint32_t>(
+            consecutive_handshake_failures > 1
+                ? consecutive_handshake_failures - 1
+                : 0,
+            3);
+        const uint32_t bounded_delay_ms = std::min<uint32_t>(delay_ms, 30000U);
+        handshake_backoff_until_ms = now + bounded_delay_ms;
+        ESP_LOGW(kTag, "dup_storm reusing UDP port after %u ms",
+                 static_cast<unsigned>(bounded_delay_ms));
+    }
+    duplicate_timestamps.fill(0);
+    duplicate_timestamp_count = 0;
+    duplicate_recent = 0;
 }
 
 void report_atem_health() {
@@ -1416,7 +1861,8 @@ void report_atem_health() {
              "reconnects(timeout/wifi/manual)=%u/%u/%u ATEM_stack_highwater=%u "
              "ATEM_packets(rx/tx/duplicate/reordered)=%u/%u/%u/%u skipped_gaps=%u "
              "hello_tx=%u hello_rx=%u hello_close_rx=%u dup_last_10s=%u ack_tx=%u "
-             "local_port=%u wifi_bssid=%s wifi_channel=%d consecutive_handshake_failures=%u",
+             "ack_retry_ok=%u ack_dropped=%u local_port=%u wifi_bssid=%s wifi_channel=%d "
+             "consecutive_handshake_failures=%u",
              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
              static_cast<unsigned>(esp_get_minimum_free_heap_size()),
              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)), rssi,
@@ -1438,6 +1884,8 @@ void report_atem_health() {
              static_cast<unsigned>(hello_close_rx_count),
              static_cast<unsigned>(duplicate_recent),
              static_cast<unsigned>(ack_tx_count),
+             static_cast<unsigned>(ack_retry_ok.load()),
+             static_cast<unsigned>(ack_dropped.load()),
              static_cast<unsigned>(current_local_port), bssid, channel,
              static_cast<unsigned>(consecutive_handshake_failures));
 }
@@ -1510,13 +1958,15 @@ void atem_client_task(void*) {
             log_reconnect_diagnostic(cause);
         }
         if (wifi_session_needs_reset) {
-            reset_atem_session(true);
-            set_state(1);
+            record_session_end("Wi-Fi loss");
+            reset_atem_session(false, true);
+            set_state(2);
         }
         if (manual_reset_requested.exchange(false)) {
             ++manual_reconnect_count;
             log_reconnect_diagnostic("manual reset");
-            reset_atem_session(false);
+            record_session_end("manual reset");
+            reset_atem_session(false, true);
             set_state(2);
         }
 
@@ -1532,6 +1982,7 @@ void atem_client_task(void*) {
             } else {
                 if (!atem_connected) set_state(2);
                 run_atem_client();
+                handle_duplicate_storm();
                 const uint32_t now = millis_now();
                 if (init_payload_seen && !atem_initialized &&
                     now - last_init_request_check_ms >= kInitRequestCheckMs) {
@@ -1540,15 +1991,18 @@ void atem_client_task(void*) {
                 }
                 recover_timed_out_out_of_order_gap();
                 if (atem_connected && last_valid_atem_packet_ms &&
-                    now - last_valid_atem_packet_ms >= kHandshakeTimeoutMs) {
-                    ++timeout_reconnect_count;
-                    log_reconnect_diagnostic("ATEM session silent for 5000 ms");
-                    record_diagnostic_event("timeout", "ATEM session silent for 5000 ms");
-                    reset_atem_session(!kReuseLocalPort);
-                    set_state(2);
-                } else if (!atem_connected && handshake_started_ms &&
-                           now - handshake_started_ms >= kHandshakeTimeoutMs) {
-                    handle_handshake_failure("hello sent; no valid reply within 5000 ms");
+                    now - last_valid_atem_packet_ms >= kSilentTimeoutEstablishedMs) {
+                    handle_silent_session_timeout();
+                } else if (!atem_connected && handshake_started_ms) {
+                    const uint32_t handshake_timeout =
+                        reused_port_after_drop ? 3000 : kSilentTimeoutHandshakeMs;
+                    if (now - handshake_started_ms >= handshake_timeout) {
+                        handle_handshake_failure(
+                            reused_port_after_drop
+                                ? "reused-port handshake silent for 3000 ms"
+                                : "hello sent; no valid reply within 5000 ms",
+                            reused_port_after_drop);
+                    }
                 }
 
             }
@@ -1567,6 +2021,8 @@ void atem_client_task(void*) {
         }
 
         const uint32_t now = millis_now();
+        clear_held_tally_if_expired(now);
+        refresh_recent_counters(now);
         if (now - last_health_report_ms >= kHealthReportIntervalMs) {
             report_atem_health();
             last_health_report_ms = now;
@@ -1585,8 +2041,12 @@ const char* tally_atem_connection_status() {
 
 size_t tally_atem_diag_snapshot(char* output, size_t capacity) {
     if (!output || capacity == 0) return 0;
-    std::array<DiagnosticEvent, kDiagnosticEventCount> events_copy{};
+    static std::array<DiagnosticEvent, kDiagnosticEventCount> events_copy{};
+    static std::array<PacketHeaderRecord, kPacketHeaderRingSize> packets_copy{};
+    static std::array<SessionRecord, 16> sessions_copy{};
     size_t copied_event_count = 0;
+    size_t copied_packet_count = 0;
+    size_t copied_session_count = 0;
     portENTER_CRITICAL(&diagnostic_events_mux);
     copied_event_count = diagnostic_event_count;
     const size_t first = (next_diagnostic_event + diagnostic_events.size() -
@@ -1595,34 +2055,104 @@ size_t tally_atem_diag_snapshot(char* output, size_t capacity) {
         events_copy[index] = diagnostic_events[(first + index) % diagnostic_events.size()];
     portEXIT_CRITICAL(&diagnostic_events_mux);
 
+    portENTER_CRITICAL(&packet_header_mux);
+    copied_packet_count = packet_header_count;
+    const size_t packet_first =
+        (next_packet_header + packet_header_ring.size() - packet_header_count) %
+        packet_header_ring.size();
+    for (size_t index = 0; index < copied_packet_count; ++index)
+        packets_copy[index] =
+            packet_header_ring[(packet_first + index) % packet_header_ring.size()];
+    portEXIT_CRITICAL(&packet_header_mux);
+
+    portENTER_CRITICAL(&session_history_mux);
+    copied_session_count = session_record_count;
+    const size_t session_first =
+        (next_session_record + session_history.size() - session_record_count) %
+        session_history.size();
+    for (size_t index = 0; index < copied_session_count; ++index)
+        sessions_copy[index] =
+            session_history[(session_first + index) % session_history.size()];
+    portEXIT_CRITICAL(&session_history_mux);
+
+    uint32_t ping_ok;
+    uint32_t ping_lost;
+    uint32_t ping_rtt;
+    uint32_t ping_time;
+    bool arp_found;
+    portENTER_CRITICAL(&ping_result_mux);
+    ping_ok = last_ping_ok;
+    ping_lost = last_ping_lost;
+    ping_rtt = last_ping_avg_rtt_ms;
+    ping_time = last_ping_time_ms;
+    arp_found = last_arp_entry_found;
+    portEXIT_CRITICAL(&ping_result_mux);
+
     const char* restart_reason =
         restart_record.magic == 0x4154454D ? restart_record.reason : "none";
-    int written = snprintf(output, capacity, "Last restart reason: %s\n"
-                           "ATEM: connected=%u initialized=%u local_port=%u "
-                           "handshake_failures=%u hello_tx=%u hello_rx=%u "
-                           "hello_close_rx=%u ack_tx=%u dup_last_10s=%u\n"
-                           "Events (oldest first):\n",
-                           restart_reason, static_cast<unsigned>(atem_connected.load()),
-                           static_cast<unsigned>(atem_initialized),
-                           static_cast<unsigned>(current_local_port),
-                           static_cast<unsigned>(consecutive_handshake_failures),
-                           static_cast<unsigned>(hello_tx_count),
-                           static_cast<unsigned>(hello_rx_count),
-                           static_cast<unsigned>(hello_close_rx_count),
-                           static_cast<unsigned>(ack_tx_count),
-                           static_cast<unsigned>(duplicate_recent));
-    if (written < 0) return 0;
-    size_t used = std::min(static_cast<size_t>(written), capacity - 1);
+    size_t used = 0;
+    auto append = [&](const char* format, ...) {
+        if (used >= capacity - 1) return;
+        va_list arguments;
+        va_start(arguments, format);
+        const int written = vsnprintf(output + used, capacity - used, format, arguments);
+        va_end(arguments);
+        if (written > 0) used = std::min(used + static_cast<size_t>(written), capacity - 1);
+    };
+
+    append("Last restart reason: %s\n"
+           "ATEM: connected=%u initialized=%u local_port=%u handshake_failures=%u "
+           "hello_tx=%u hello_rx=%u hello_close_rx=%u ack_tx=%u ack_retry_ok=%u "
+           "ack_dropped=%u dup_last_10s=%u\n"
+           "Ping: ok=%u lost=%u avg_rtt_ms=%u completed_ms=%u ARP=%s\n",
+           restart_reason, static_cast<unsigned>(atem_connected.load()),
+           static_cast<unsigned>(atem_initialized),
+           static_cast<unsigned>(current_local_port),
+           static_cast<unsigned>(consecutive_handshake_failures),
+           static_cast<unsigned>(hello_tx_count),
+           static_cast<unsigned>(hello_rx_count),
+           static_cast<unsigned>(hello_close_rx_count),
+           static_cast<unsigned>(ack_tx_count),
+           static_cast<unsigned>(ack_retry_ok.load()),
+           static_cast<unsigned>(ack_dropped.load()),
+           static_cast<unsigned>(duplicate_recent),
+           static_cast<unsigned>(ping_ok), static_cast<unsigned>(ping_lost),
+           static_cast<unsigned>(ping_rtt), static_cast<unsigned>(ping_time),
+           arp_found ? "present" : "missing");
+
+    append("Sessions (oldest first):\n");
+    for (size_t index = 0; index < copied_session_count; ++index) {
+        const SessionRecord& session = sessions_copy[index];
+        if (session.reconnect_delay_ms == UINT32_MAX) {
+            append("%u lifetime_s=%u last_rx_id=%u cause=%s reconnect_delay=pending\n",
+                   static_cast<unsigned>(session.start_ms),
+                   static_cast<unsigned>(session.lifetime_s),
+                   static_cast<unsigned>(session.last_rx_id), session.cause);
+        } else {
+            append("%u lifetime_s=%u last_rx_id=%u cause=%s reconnect_delay_ms=%u\n",
+                   static_cast<unsigned>(session.start_ms),
+                   static_cast<unsigned>(session.lifetime_s),
+                   static_cast<unsigned>(session.last_rx_id), session.cause,
+                   static_cast<unsigned>(session.reconnect_delay_ms));
+        }
+    }
+
+    append("Packet headers (oldest first):\n");
+    for (size_t index = 0; index < copied_packet_count; ++index) {
+        const PacketHeaderRecord& packet = packets_copy[index];
+        append("%u %c flags=0x%02x id=%u ack=%u session=0x%04x len=%u cmd=%.4s\n",
+               static_cast<unsigned>(packet.time_ms), packet.direction,
+               packet.flags, static_cast<unsigned>(packet.packet_id),
+               static_cast<unsigned>(packet.ack_id),
+               static_cast<unsigned>(packet.session_id),
+               static_cast<unsigned>(packet.length), packet.command);
+    }
+
+    append("Events (oldest first):\n");
     for (size_t index = 0; index < copied_event_count && used < capacity - 1; ++index) {
         const DiagnosticEvent& event = events_copy[index];
-        written = snprintf(output + used, capacity - used, "%u %s %s\n",
-                           static_cast<unsigned>(event.time_ms), event.type, event.details);
-        if (written < 0) break;
-        if (static_cast<size_t>(written) >= capacity - used) {
-            used = capacity - 1;
-            break;
-        }
-        used += static_cast<size_t>(written);
+        append("%u %s %s\n", static_cast<unsigned>(event.time_ms),
+               event.type, event.details);
     }
     output[used] = '\0';
     return used;
