@@ -253,6 +253,14 @@ body{font:16px system-ui,sans-serif;margin:0;background:#edf1ed;color:#182b2a}he
     return httpd_resp_send(request, page.c_str(), page.size());
 }
 
+esp_err_t diag_handler(httpd_req_t* request) {
+    static char diagnostics[8192];
+    const size_t length =
+        tally_atem_diag_snapshot(diagnostics, sizeof(diagnostics));
+    httpd_resp_set_type(request, "text/plain; charset=utf-8");
+    return httpd_resp_send(request, diagnostics, length);
+}
+
 bool url_decode(const char* input, std::string& output) {
     output.clear();
     for (size_t index = 0; input[index] != '\0'; ++index) {
@@ -531,6 +539,7 @@ esp_err_t save_handler(httpd_req_t* request) {
     }
 
     if (requires_restart(previous, updated)) {
+        tally_mark_restart_pending();
         httpd_resp_set_type(request, "text/html; charset=utf-8");
         httpd_resp_sendstr(request, "<!doctype html><html><body><p>Settings saved. Restarting to apply hardware or network changes...</p></body></html>");
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -652,7 +661,7 @@ esp_err_t tally_settings_save() {
 void tally_web_server_start() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
-    config.max_uri_handlers = 5;
+    config.max_uri_handlers = 6;
     config.lru_purge_enable = true;
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -661,10 +670,12 @@ void tally_web_server_start() {
     }
 
     const httpd_uri_t root = {.uri = "/", .method = HTTP_GET, .handler = root_handler, .user_ctx = nullptr};
+    const httpd_uri_t diag = {.uri = "/diag", .method = HTTP_GET, .handler = diag_handler, .user_ctx = nullptr};
     const httpd_uri_t save = {.uri = "/save", .method = HTTP_POST, .handler = save_handler, .user_ctx = nullptr};
     const httpd_uri_t debug = {.uri = "/debug", .method = HTTP_POST, .handler = debug_logging_handler, .user_ctx = nullptr};
     const httpd_uri_t test_server = {.uri = "/test-server", .method = HTTP_POST, .handler = test_server_handler, .user_ctx = nullptr};
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &root));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &diag));
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &save));
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &debug));
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &test_server));

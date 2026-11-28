@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include "esp_err.h"
 
@@ -39,6 +40,8 @@ uint16_t tally_battery_update();
 uint16_t tally_battery_voltage_mv();
 bool tally_battery_is_low();
 const char* tally_atem_connection_status();
+size_t tally_atem_diag_snapshot(char* output, size_t capacity);
+void tally_mark_restart_pending();
 void tally_refresh_outputs();
 esp_err_t tally_test_server_set_enabled(bool enabled);
 esp_err_t tally_debug_logging_set_enabled(bool enabled);

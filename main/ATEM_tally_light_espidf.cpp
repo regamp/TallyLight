@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "driver/rmt.h"
+#include "esp_attr.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -21,7 +22,9 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
+#include "lwip/etharp.h"
 #include "lwip/sockets.h"
+#include "esp_netif_net_stack.h"
 #include "nvs_flash.h"
 #include "improv_idf.hpp"
 #include "tally_server_idf.hpp"
@@ -41,14 +44,34 @@ constexpr size_t kAtemReceiveBatchSize = 16;
 constexpr size_t kAtemOutOfOrderCapacity = 32;
 constexpr size_t kAtemMaxPacketSize = 1500;
 constexpr size_t kAtemBufferedPacketSize = 256;
-constexpr bool kAckDuringInit = false;
+constexpr bool kAckDuringInit = true;
+constexpr bool kReuseLocalPort = true;
 constexpr int kWifiConnected = BIT0;
 constexpr uint32_t kInitRequestRetryMs = 1000;
 constexpr uint32_t kInitRequestCheckMs = 200;
 constexpr uint32_t kOutOfOrderGapTimeoutMs = 500;
 constexpr uint32_t kHealthReportIntervalMs = 30000;
+constexpr uint32_t kAtemSilentRestartMs = 10 * 60 * 1000;
+constexpr uint32_t kHandshakeTimeoutMs = 5000;
+constexpr uint32_t kRoamScanIntervalMs = 60000;
+constexpr int kRoamRssiThreshold = -72;
+constexpr int kRoamImprovementDb = 8;
 constexpr uint32_t kDebugAutoDisableMs = 10 * 60 * 1000;
 constexpr size_t kMaxNeopixelCount = 64;
+constexpr size_t kDiagnosticEventCount = 32;
+
+struct RestartRecord {
+    uint32_t magic;
+    char reason[32];
+};
+
+struct DiagnosticEvent {
+    uint32_t time_ms;
+    char type[12];
+    char details[96];
+};
+
+RTC_NOINIT_ATTR RestartRecord restart_record;
 
 enum class Color : uint8_t {
     Off,
@@ -94,7 +117,33 @@ uint32_t timeout_reconnect_count = 0;
 uint32_t wifi_reconnect_count = 0;
 uint32_t manual_reconnect_count = 0;
 uint32_t last_atem_packet_ms = 0;
+uint32_t last_rx_ms = 0;
+uint32_t last_valid_atem_packet_ms = 0;
+uint32_t atem_silent_wifi_ms = 0;
+uint32_t last_silence_check_ms = 0;
 uint32_t last_hello_ms = 0;
+uint32_t handshake_started_ms = 0;
+uint32_t handshake_backoff_until_ms = 0;
+uint32_t last_rx_packet_id = 0;
+uint32_t last_ack_duplicate_window_ms = 0;
+uint32_t last_roam_scan_ms = 0;
+uint32_t hello_tx_count = 0;
+uint32_t hello_rx_count = 0;
+uint32_t hello_close_rx_count = 0;
+uint32_t hello_tx_since_good = 0;
+uint32_t hello_rx_since_good = 0;
+uint32_t ack_tx_count = 0;
+uint32_t ack_tx_recent = 0;
+uint32_t duplicate_recent = 0;
+uint32_t consecutive_handshake_failures = 0;
+uint16_t last_rx_flags = 0;
+uint16_t current_local_port = 0;
+uint16_t last_hello_payload_length = 0;
+std::array<uint8_t, 8> last_hello_payload{};
+std::array<DiagnosticEvent, kDiagnosticEventCount> diagnostic_events{};
+size_t next_diagnostic_event = 0;
+size_t diagnostic_event_count = 0;
+portMUX_TYPE diagnostic_events_mux = portMUX_INITIALIZER_UNLOCKED;
 uint32_t last_battery_sample_ms = 0;
 uint32_t battery_warning_started_ms = 0;
 std::atomic<bool> atem_connected{false};
@@ -122,6 +171,13 @@ bool strip_initialized = false;
 std::atomic<bool> test_server_mode{false};
 std::atomic<bool> debug_logging_mode{false};
 std::atomic<bool> wifi_lost{false};
+std::atomic<bool> wifi_session_reset{false};
+std::atomic<bool> wifi_had_ip{false};
+std::atomic<bool> wifi_bounce_pending{false};
+std::atomic<bool> gratuitous_arp_pending{false};
+std::atomic<bool> restart_pending{false};
+std::atomic<bool> roam_scan_pending{false};
+std::atomic<bool> roam_reconnect_pending{false};
 std::atomic<bool> manual_reset_requested{false};
 std::atomic<bool> debug_tally_pending{false};
 std::atomic<uint32_t> debug_logging_started_ms{0};
@@ -135,12 +191,17 @@ uint32_t last_atem_debug_summary_ms = 0;
 uint32_t last_debug_anomaly_log_ms = 0;
 bool fallback_ap_active = false;
 uint32_t wifi_connected_since_ms = 0;
+uint32_t wifi_disconnect_reason = 0;
+int roam_current_rssi = -127;
+std::array<uint8_t, 6> roam_current_bssid{};
 
 uint16_t read_be16(const uint8_t* data) {
     return static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8) | data[1]);
 }
 
 uint32_t millis_now();
+void reset_atem_session(bool close_socket);
+void handle_handshake_failure(const char* cause, bool close_socket_immediately = false);
 
 void record_atem_packet(const char* direction) {
     if (strcmp(direction, "RX") == 0) ++atem_rx_packet_count;
@@ -162,6 +223,70 @@ void write_be16(uint8_t* data, uint16_t value) {
 
 uint32_t millis_now() {
     return static_cast<uint32_t>(esp_timer_get_time() / 1000);
+}
+
+void record_diagnostic_event(const char* type, const char* details) {
+    const uint32_t now = millis_now();
+    portENTER_CRITICAL(&diagnostic_events_mux);
+    DiagnosticEvent& event = diagnostic_events[next_diagnostic_event];
+    event.time_ms = now;
+    strlcpy(event.type, type, sizeof(event.type));
+    strlcpy(event.details, details, sizeof(event.details));
+    next_diagnostic_event = (next_diagnostic_event + 1) % diagnostic_events.size();
+    diagnostic_event_count =
+        std::min(diagnostic_event_count + 1, diagnostic_events.size());
+    portEXIT_CRITICAL(&diagnostic_events_mux);
+}
+
+void refresh_recent_counters(uint32_t now) {
+    if (!last_ack_duplicate_window_ms ||
+        now - last_ack_duplicate_window_ms >= 10000) {
+        last_ack_duplicate_window_ms = now;
+        ack_tx_recent = 0;
+        duplicate_recent = 0;
+    }
+}
+
+void record_ack_sent() {
+    ++ack_tx_count;
+    refresh_recent_counters(millis_now());
+    ++ack_tx_recent;
+}
+
+void record_duplicate_received() {
+    refresh_recent_counters(millis_now());
+    ++duplicate_recent;
+}
+
+void log_reconnect_diagnostic(const char* cause) {
+    wifi_ap_record_t access_point{};
+    char bssid[18] = "none";
+    int channel = 0;
+    int rssi = -127;
+    if ((xEventGroupGetBits(wifi_events) & kWifiConnected) &&
+        esp_wifi_sta_get_ap_info(&access_point) == ESP_OK) {
+        snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 access_point.bssid[0], access_point.bssid[1], access_point.bssid[2],
+                 access_point.bssid[3], access_point.bssid[4], access_point.bssid[5]);
+        channel = access_point.primary;
+        rssi = access_point.rssi;
+    }
+    const uint32_t now = millis_now();
+    refresh_recent_counters(now);
+    ESP_LOGW(kTag,
+             "Reconnect: cause=%s ms_since_last_rx=%u last_rx_id=%u last_rx_flags=0x%02x "
+             "ack_10s=%u dup_10s=%u hello_tx_since_good=%u hello_rx_since_good=%u "
+             "hello_payload=%02x%02x%02x%02x%02x%02x%02x%02x "
+             "BSSID=%s channel=%d RSSI=%d",
+             cause, static_cast<unsigned>(last_rx_ms ? now - last_rx_ms : now),
+             static_cast<unsigned>(last_rx_packet_id), static_cast<unsigned>(last_rx_flags),
+             static_cast<unsigned>(ack_tx_recent), static_cast<unsigned>(duplicate_recent),
+             static_cast<unsigned>(hello_tx_since_good),
+             static_cast<unsigned>(hello_rx_since_good),
+             last_hello_payload[0], last_hello_payload[1], last_hello_payload[2],
+             last_hello_payload[3], last_hello_payload[4], last_hello_payload[5],
+             last_hello_payload[6], last_hello_payload[7], bssid, channel, rssi);
+    record_diagnostic_event("reconnect", cause);
 }
 
 Rgb color_value(Color color) {
@@ -367,9 +492,49 @@ void apply_debug_tally() {
     output_refresh_pending.store(true);
 }
 
+void handle_roam_scan_complete() {
+    roam_scan_pending.store(false);
+    uint16_t access_point_count = 0;
+    esp_err_t result = esp_wifi_scan_get_ap_num(&access_point_count);
+    if (result != ESP_OK) {
+        ESP_LOGW(kTag, "Could not read roaming scan count: %s", esp_err_to_name(result));
+        return;
+    }
+
+    std::array<wifi_ap_record_t, 32> access_points{};
+    uint16_t records_to_read =
+        std::min<uint16_t>(access_point_count, access_points.size());
+    if (records_to_read) {
+        result = esp_wifi_scan_get_ap_records(&records_to_read, access_points.data());
+        if (result != ESP_OK) {
+            ESP_LOGW(kTag, "Could not read roaming scan results: %s", esp_err_to_name(result));
+            return;
+        }
+    }
+
+    for (uint16_t index = 0; index < records_to_read; ++index) {
+        const wifi_ap_record_t& candidate = access_points[index];
+        if (strncmp(reinterpret_cast<const char*>(candidate.ssid),
+                    tally_settings.wifi_ssid, sizeof(candidate.ssid)) == 0 &&
+            memcmp(candidate.bssid, roam_current_bssid.data(),
+                   roam_current_bssid.size()) != 0 &&
+            candidate.rssi >= roam_current_rssi + kRoamImprovementDb) {
+            log_reconnect_diagnostic("Wi-Fi roam to better same-SSID BSSID");
+            roam_reconnect_pending.store(true);
+            const esp_err_t disconnect_result = esp_wifi_disconnect();
+            if (disconnect_result != ESP_OK) {
+                roam_reconnect_pending.store(false);
+                ESP_LOGW(kTag, "Could not disconnect for Wi-Fi roaming: %s",
+                         esp_err_to_name(disconnect_result));
+            }
+            return;
+        }
+    }
+}
+
 void wifi_event_handler(void*, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        if (tally_settings.wifi_ssid[0] != '\0') {
+        if (tally_settings.wifi_ssid[0] != '\0' && !restart_pending.load()) {
             const esp_err_t result = esp_wifi_connect();
             if (result != ESP_OK) {
                 ESP_LOGE(kTag, "Could not connect to Wi-Fi: %s", esp_err_to_name(result));
@@ -377,19 +542,67 @@ void wifi_event_handler(void*, esp_event_base_t event_base, int32_t event_id, vo
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
         debug_tally_pending.store(true);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_BSS_RSSI_LOW) {
+        const esp_err_t threshold_result = esp_wifi_set_rssi_threshold(kRoamRssiThreshold);
+        if (threshold_result != ESP_OK) {
+            ESP_LOGW(kTag, "Could not re-arm Wi-Fi roaming RSSI threshold: %s",
+                     esp_err_to_name(threshold_result));
+        }
+        const uint32_t now = millis_now();
+        if (!roam_scan_pending.load() &&
+            (!last_roam_scan_ms || now - last_roam_scan_ms >= kRoamScanIntervalMs)) {
+            wifi_ap_record_t access_point{};
+            if (esp_wifi_sta_get_ap_info(&access_point) == ESP_OK) {
+                roam_current_rssi = access_point.rssi;
+                memcpy(roam_current_bssid.data(), access_point.bssid,
+                       roam_current_bssid.size());
+                wifi_scan_config_t scan_config{};
+                scan_config.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+                scan_config.scan_time.active.min = 100;
+                scan_config.scan_time.active.max = 300;
+                const esp_err_t result = esp_wifi_scan_start(&scan_config, false);
+                if (result == ESP_OK) {
+                    last_roam_scan_ms = now;
+                    roam_scan_pending.store(true);
+                    record_diagnostic_event("roam_scan", "RSSI threshold reached");
+                } else {
+                    ESP_LOGW(kTag, "Could not start Wi-Fi roaming scan: %s",
+                             esp_err_to_name(result));
+                }
+            }
+        }
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_SCAN_DONE) {
+        if (roam_scan_pending.load()) handle_roam_scan_complete();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(wifi_events, kWifiConnected);
-        wifi_lost.store(true);
+        const bool intentional_bounce = wifi_bounce_pending.load();
+        const bool intentional_roam = roam_reconnect_pending.exchange(false);
+        const bool had_ip = wifi_had_ip.exchange(false);
         const auto* event = static_cast<wifi_event_sta_disconnected_t*>(event_data);
-        ESP_LOGW(kTag, "Wi-Fi disconnected (reason %u); reconnecting",
-                 event ? static_cast<unsigned>(event->reason) : 0U);
-        const esp_err_t result = esp_wifi_connect();
-        if (result != ESP_OK) {
-            ESP_LOGE(kTag, "Could not reconnect to Wi-Fi: %s", esp_err_to_name(result));
+        wifi_disconnect_reason = event ? event->reason : 0;
+        if (had_ip) {
+            wifi_session_reset.store(true);
+            if (!intentional_bounce && !intentional_roam)
+                wifi_lost.store(true);
+        }
+        if (intentional_bounce) gratuitous_arp_pending.store(true);
+        if (tally_settings.wifi_ssid[0] != '\0' && !restart_pending.load()) {
+            const esp_err_t result = esp_wifi_connect();
+            if (result != ESP_OK && !restart_pending.load()) {
+                ESP_LOGE(kTag, "Could not reconnect to Wi-Fi: %s", esp_err_to_name(result));
+            }
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         xEventGroupSetBits(wifi_events, kWifiConnected);
+        wifi_had_ip.store(true);
+        if (wifi_bounce_pending.load()) gratuitous_arp_pending.store(true);
         debug_tally_pending.store(true);
+        if (gratuitous_arp_pending.exchange(false) && station_netif) {
+            struct netif* netif =
+                static_cast<struct netif*>(esp_netif_get_netif_impl(station_netif));
+            if (netif) etharp_gratuitous(netif);
+            wifi_bounce_pending.store(false);
+        }
     }
 }
 
@@ -464,6 +677,11 @@ void initialize_wifi() {
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
     }
     ESP_ERROR_CHECK(esp_wifi_start());
+    const esp_err_t rssi_result = esp_wifi_set_rssi_threshold(kRoamRssiThreshold);
+    if (rssi_result != ESP_OK) {
+        ESP_LOGW(kTag, "Could not set Wi-Fi roaming RSSI threshold: %s",
+                 esp_err_to_name(rssi_result));
+    }
     if (!tally_settings.wifi_ssid[0]) soft_ap_active = true;
 }
 
@@ -500,6 +718,7 @@ bool send_atem_packet(uint8_t flags, uint16_t packet_id, const uint8_t* payload,
         return false;
     } else {
         record_atem_packet("TX");
+        if (flags == 0x10) record_ack_sent();
         return true;
     }
 }
@@ -507,8 +726,16 @@ bool send_atem_packet(uint8_t flags, uint16_t packet_id, const uint8_t* payload,
 void send_hello() {
     uint8_t payload[8]{};
     payload[0] = 0x01;
-    send_atem_packet(0x02, 0, payload, sizeof(payload), 0x3A);
+    const bool sent = send_atem_packet(0x02, 0, payload, sizeof(payload), 0x3A);
     last_hello_ms = millis_now();
+    if (sent) {
+        ++hello_tx_count;
+        ++hello_tx_since_good;
+        if (!handshake_started_ms) {
+            handshake_started_ms = last_hello_ms;
+            record_diagnostic_event("hello_tx", "new handshake round");
+        }
+    }
 }
 
 void record_atem_send_failure(const char* operation, int error) {
@@ -822,6 +1049,7 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
 
     if (distance == 0 || distance > kAtemPacketIdModulus / 2) {
         ++atem_duplicate_packet_count;
+        record_duplicate_received();
         if (should_log_debug_anomaly()) {
             ESP_LOGW(kTag, "Duplicate ATEM packet %u; ACKed with its own ID",
                      static_cast<unsigned>(remote_packet_id));
@@ -876,6 +1104,7 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
         kAtemPacketIdModulus);
     if (updated_distance == 0 || updated_distance > kAtemPacketIdModulus / 2) {
         ++atem_duplicate_packet_count;
+        record_duplicate_received();
     } else if (updated_distance == 1) {
         last_remote_packet_id = remote_packet_id;
         process_ordered_atem_packet(packet, packet_size, remote_packet_id);
@@ -891,6 +1120,8 @@ void process_atem_ack_request(const uint8_t* packet, size_t packet_size,
 }
 
 void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockaddr_in& source) {
+    (void)source;
+    last_rx_ms = millis_now();
     if (packet_size < 12) {
         record_atem_packet("RX");
         if (should_log_debug_anomaly()) {
@@ -909,27 +1140,103 @@ void process_atem_packet(const uint8_t* packet, size_t packet_size, const sockad
         return;
     }
 
-    session_id = read_be16(packet + 2);
     const uint8_t flags = packet[0] >> 3;
     const uint16_t remote_packet_id = read_be16(packet + 10);
-    last_atem_packet_ms = millis_now();
+    last_rx_packet_id = remote_packet_id;
+    last_rx_flags = flags;
 
     if (flags & 0x02) {
-        atem_connected = packet_size <= 12 || packet[12] != 3;
+        const bool was_connected = atem_connected.load();
+        const size_t payload_size = packet_size - 12;
+        const uint8_t payload_status = payload_size ? packet[12] : 0xFF;
+        last_hello_payload_length =
+            static_cast<uint16_t>(std::min(payload_size, last_hello_payload.size()));
+        last_hello_payload.fill(0);
+        if (last_hello_payload_length)
+            memcpy(last_hello_payload.data(), packet + 12, last_hello_payload_length);
+        ++hello_rx_count;
+        ++hello_rx_since_good;
+        if (was_connected) ++hello_close_rx_count;
+        char hello_event[64]{};
+        snprintf(hello_event, sizeof(hello_event), "payload=%02x%02x%02x%02x",
+                 last_hello_payload[0], last_hello_payload[1],
+                 last_hello_payload[2], last_hello_payload[3]);
+        record_diagnostic_event("hello_rx", hello_event);
+
+        if (!was_connected) {
+            ESP_LOGI(kTag,
+                     "ATEM hello RX payload=%02x %02x %02x %02x %02x %02x %02x %02x "
+                     "length=%u connected=0 initialized=%u",
+                     last_hello_payload[0], last_hello_payload[1],
+                     last_hello_payload[2], last_hello_payload[3],
+                     last_hello_payload[4], last_hello_payload[5],
+                     last_hello_payload[6], last_hello_payload[7],
+                     static_cast<unsigned>(payload_size),
+                     static_cast<unsigned>(atem_initialized));
+        }
+        if (was_connected && !atem_initialized && payload_status == 2) {
+            ESP_LOGW(kTag,
+                     "ATEM hello RX payload=%02x %02x %02x %02x %02x %02x %02x %02x "
+                     "length=%u connected=1 initialized=0; repeating hello ACK",
+                     last_hello_payload[0], last_hello_payload[1],
+                     last_hello_payload[2], last_hello_payload[3],
+                     last_hello_payload[4], last_hello_payload[5],
+                     last_hello_payload[6], last_hello_payload[7],
+                     static_cast<unsigned>(payload_size));
+            send_atem_packet(0x10, 0, nullptr, 0, 0x03);
+            record_atem_packet("RX");
+            return;
+        }
+        if (was_connected) {
+            log_reconnect_diagnostic("hello flag received while connected");
+            record_atem_packet("RX");
+            reset_atem_session(false);
+            set_state(2);
+            return;
+        }
+        if (payload_status != 2) {
+            if (payload_status == 3)
+                ESP_LOGE(kTag, "ATEM rejected the connection (status=3; no free client slot)");
+            handle_handshake_failure(payload_status == 3
+                                         ? "ATEM reports no free client slot"
+                                         : "invalid hello response");
+            record_atem_packet("RX");
+            return;
+        }
+
+        session_id = read_be16(packet + 2);
+        atem_connected = true;
         clear_out_of_order_packets();
         last_remote_packet_id = remote_packet_id;
         remote_sequence_initialized = true;
+        last_valid_atem_packet_ms = millis_now();
+        last_atem_packet_ms = last_valid_atem_packet_ms;
+        atem_silent_wifi_ms = 0;
+        last_silence_check_ms = last_valid_atem_packet_ms;
+        handshake_started_ms = 0;
         send_atem_packet(0x10, 0, nullptr, 0, 0x03);
-        if (atem_connected) {
-            set_state(3);
-            ESP_LOGI(kTag, "ATEM switcher connected");
-        } else {
-            ESP_LOGE(kTag, "ATEM rejected the connection (status=%u; no free client slot)",
-                     packet_size > 12 ? packet[12] : 0);
-        }
+        set_state(3);
+        ESP_LOGI(kTag, "ATEM switcher connected");
         record_atem_packet("RX");
         return;
     }
+
+    if (!atem_connected) {
+        record_atem_packet("RX");
+        return;
+    }
+
+    session_id = read_be16(packet + 2);
+    last_atem_packet_ms = millis_now();
+    last_valid_atem_packet_ms = last_atem_packet_ms;
+    atem_silent_wifi_ms = 0;
+    last_silence_check_ms = last_valid_atem_packet_ms;
+    if (consecutive_handshake_failures) {
+        consecutive_handshake_failures = 0;
+        record_diagnostic_event("session_good", "valid post-handshake packet");
+    }
+    hello_tx_since_good = 0;
+    hello_rx_since_good = 0;
 
     if (packet_size == 12 && remote_packet_id > 1) {
         init_payload_seen = true;
@@ -1010,6 +1317,7 @@ bool open_atem_socket() {
     ESP_LOGI(kTag, "ATEM UDP socket ready; local port %u, destination %s:%u",
              static_cast<unsigned>(ntohs(bound_address.sin_port)),
              tally_settings.switcher_ip, kAtemPort);
+    current_local_port = ntohs(bound_address.sin_port);
     last_atem_packet_ms = millis_now();
     return true;
 }
@@ -1035,25 +1343,80 @@ void reset_atem_session(bool close_socket) {
     tally_server_reset_flags();
     stream_is_on_air = false;
     last_hello_ms = 0;
+    handshake_started_ms = 0;
     last_atem_packet_ms = millis_now();
     output_refresh_pending.store(true);
     if (test_server_mode.load()) debug_tally_pending.store(true);
     if (close_socket && atem_socket >= 0) {
         close(atem_socket);
         atem_socket = -1;
+        current_local_port = 0;
+    }
+}
+
+void handle_handshake_failure(const char* cause, bool close_socket_immediately) {
+    log_reconnect_diagnostic(cause);
+    ++consecutive_handshake_failures;
+    ++timeout_reconnect_count;
+    char details[96]{};
+    snprintf(details, sizeof(details), "%s; consecutive=%u", cause,
+             static_cast<unsigned>(consecutive_handshake_failures));
+    record_diagnostic_event("handshake_fail", details);
+
+    const uint32_t failures = consecutive_handshake_failures;
+    const bool wifi_bounce = failures == 3;
+    const bool close_socket =
+        close_socket_immediately || wifi_bounce || !kReuseLocalPort;
+    const char* action = wifi_bounce ? "bounce Wi-Fi and recreate socket" :
+                         failures >= 4 ? "exponential hello backoff" :
+                         kReuseLocalPort ? "reuse UDP socket for next session" :
+                                           "recreate UDP socket for next session";
+    ESP_LOGI(kTag, "Reconnect ladder: failure=%u action=%s",
+             static_cast<unsigned>(failures), action);
+    reset_atem_session(close_socket);
+    if (wifi_bounce) {
+        wifi_bounce_pending.store(true);
+        gratuitous_arp_pending.store(true);
+        record_diagnostic_event("wifi_bounce", "third consecutive handshake failure");
+        const esp_err_t result = esp_wifi_disconnect();
+        if (result != ESP_OK) {
+            wifi_bounce_pending.store(false);
+            ESP_LOGE(kTag, "Could not bounce Wi-Fi after handshake failures: %s",
+                     esp_err_to_name(result));
+        }
+    } else if (failures >= 4) {
+        const uint32_t exponent = std::min<uint32_t>(failures - 4, 3);
+        const uint32_t delay_ms = std::min<uint32_t>(5000U << exponent, 30000U);
+        const int32_t jitter_ms = static_cast<int32_t>(esp_random() % 501U) - 250;
+        const uint32_t actual_delay_ms = static_cast<uint32_t>(
+            std::clamp<int32_t>(static_cast<int32_t>(delay_ms) + jitter_ms, 1000, 30000));
+        handshake_backoff_until_ms = millis_now() + actual_delay_ms;
+        ESP_LOGI(kTag, "Next hello round in %u ms",
+                 static_cast<unsigned>(actual_delay_ms));
     }
 }
 
 void report_atem_health() {
     wifi_ap_record_t access_point{};
+    char bssid[18] = "none";
+    int channel = 0;
     const int rssi = (xEventGroupGetBits(wifi_events) & kWifiConnected) &&
                      esp_wifi_sta_get_ap_info(&access_point) == ESP_OK
                          ? access_point.rssi
                          : -127;
+    if (rssi != -127) {
+        snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 access_point.bssid[0], access_point.bssid[1], access_point.bssid[2],
+                 access_point.bssid[3], access_point.bssid[4], access_point.bssid[5]);
+        channel = access_point.primary;
+    }
+    refresh_recent_counters(millis_now());
     ESP_LOGI(kTag,
              "Health: heap=%u min_heap=%u largest_block=%u RSSI=%d dBm send_failures=%u ENOMEM=%u "
              "reconnects(timeout/wifi/manual)=%u/%u/%u ATEM_stack_highwater=%u "
-             "ATEM_packets(rx/tx/duplicate/reordered)=%u/%u/%u/%u skipped_gaps=%u",
+             "ATEM_packets(rx/tx/duplicate/reordered)=%u/%u/%u/%u skipped_gaps=%u "
+             "hello_tx=%u hello_rx=%u hello_close_rx=%u dup_last_10s=%u ack_tx=%u "
+             "local_port=%u wifi_bssid=%s wifi_channel=%d consecutive_handshake_failures=%u",
              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
              static_cast<unsigned>(esp_get_minimum_free_heap_size()),
              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)), rssi,
@@ -1069,12 +1432,21 @@ void report_atem_health() {
              static_cast<unsigned>(atem_tx_packet_count),
              static_cast<unsigned>(atem_duplicate_packet_count),
              static_cast<unsigned>(atem_out_of_order_packet_count),
-             static_cast<unsigned>(atem_skipped_gap_count));
+             static_cast<unsigned>(atem_skipped_gap_count),
+             static_cast<unsigned>(hello_tx_count),
+             static_cast<unsigned>(hello_rx_count),
+             static_cast<unsigned>(hello_close_rx_count),
+             static_cast<unsigned>(duplicate_recent),
+             static_cast<unsigned>(ack_tx_count),
+             static_cast<unsigned>(current_local_port), bssid, channel,
+             static_cast<unsigned>(consecutive_handshake_failures));
 }
 
 void run_atem_client() {
     static uint8_t packet[kAtemMaxPacketSize];
-    if (!atem_connected && (last_hello_ms == 0 ||
+    if (!atem_connected &&
+        static_cast<int32_t>(millis_now() - handshake_backoff_until_ms) >= 0 &&
+        (last_hello_ms == 0 ||
                             millis_now() - last_hello_ms >= 1000)) {
         send_hello();
     }
@@ -1122,23 +1494,38 @@ void run_atem_client() {
 
 void atem_client_task(void*) {
     reset_atem_session(false);
+    if (!last_valid_atem_packet_ms) last_valid_atem_packet_ms = millis_now();
     set_state(1);
     uint32_t last_health_report_ms = millis_now();
     uint32_t last_init_request_check_ms = millis_now();
 
     while (true) {
-        if (wifi_lost.exchange(false)) {
+        const bool real_wifi_loss = wifi_lost.exchange(false);
+        const bool wifi_session_needs_reset = wifi_session_reset.exchange(false);
+        if (real_wifi_loss) {
             ++wifi_reconnect_count;
+            char cause[64]{};
+            snprintf(cause, sizeof(cause), "Wi-Fi lost after IP acquisition (reason %u)",
+                     static_cast<unsigned>(wifi_disconnect_reason));
+            log_reconnect_diagnostic(cause);
+        }
+        if (wifi_session_needs_reset) {
             reset_atem_session(true);
             set_state(1);
         }
         if (manual_reset_requested.exchange(false)) {
             ++manual_reconnect_count;
+            log_reconnect_diagnostic("manual reset");
             reset_atem_session(false);
             set_state(2);
         }
 
         const EventBits_t bits = xEventGroupGetBits(wifi_events);
+        const uint32_t loop_now = millis_now();
+        if (!last_silence_check_ms) last_silence_check_ms = loop_now;
+        else if (bits & kWifiConnected)
+            atem_silent_wifi_ms += loop_now - last_silence_check_ms;
+        last_silence_check_ms = loop_now;
         if (bits & kWifiConnected) {
             if (atem_socket < 0 && !open_atem_socket()) {
                 vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1152,12 +1539,28 @@ void atem_client_task(void*) {
                     last_init_request_check_ms = now;
                 }
                 recover_timed_out_out_of_order_gap();
-                if (atem_socket >= 0 && now - last_atem_packet_ms >= 5000) {
+                if (atem_connected && last_valid_atem_packet_ms &&
+                    now - last_valid_atem_packet_ms >= kHandshakeTimeoutMs) {
                     ++timeout_reconnect_count;
-                    ESP_LOGW(kTag, "No valid ATEM packet for 5000 ms; reconnecting");
-                    reset_atem_session(true);
+                    log_reconnect_diagnostic("ATEM session silent for 5000 ms");
+                    record_diagnostic_event("timeout", "ATEM session silent for 5000 ms");
+                    reset_atem_session(!kReuseLocalPort);
                     set_state(2);
+                } else if (!atem_connected && handshake_started_ms &&
+                           now - handshake_started_ms >= kHandshakeTimeoutMs) {
+                    handle_handshake_failure("hello sent; no valid reply within 5000 ms");
                 }
+
+            }
+            if (atem_silent_wifi_ms >= kAtemSilentRestartMs &&
+                !restart_pending.exchange(true)) {
+                log_reconnect_diagnostic("ATEM silent for 10 minutes");
+                record_diagnostic_event("restart", "atem_silent_10min");
+                restart_record.magic = 0x4154454D;
+                strlcpy(restart_record.reason, "atem_silent_10min",
+                        sizeof(restart_record.reason));
+                ESP_LOGE(kTag, "Restarting after 10 minutes without a valid ATEM packet");
+                esp_restart();
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -1178,6 +1581,55 @@ const char* tally_atem_connection_status() {
     if (atem_connected) return "Connected";
     if (atem_socket >= 0) return "Connecting; waiting for ATEM response";
     return "ATEM socket unavailable";
+}
+
+size_t tally_atem_diag_snapshot(char* output, size_t capacity) {
+    if (!output || capacity == 0) return 0;
+    std::array<DiagnosticEvent, kDiagnosticEventCount> events_copy{};
+    size_t copied_event_count = 0;
+    portENTER_CRITICAL(&diagnostic_events_mux);
+    copied_event_count = diagnostic_event_count;
+    const size_t first = (next_diagnostic_event + diagnostic_events.size() -
+                          diagnostic_event_count) % diagnostic_events.size();
+    for (size_t index = 0; index < copied_event_count; ++index)
+        events_copy[index] = diagnostic_events[(first + index) % diagnostic_events.size()];
+    portEXIT_CRITICAL(&diagnostic_events_mux);
+
+    const char* restart_reason =
+        restart_record.magic == 0x4154454D ? restart_record.reason : "none";
+    int written = snprintf(output, capacity, "Last restart reason: %s\n"
+                           "ATEM: connected=%u initialized=%u local_port=%u "
+                           "handshake_failures=%u hello_tx=%u hello_rx=%u "
+                           "hello_close_rx=%u ack_tx=%u dup_last_10s=%u\n"
+                           "Events (oldest first):\n",
+                           restart_reason, static_cast<unsigned>(atem_connected.load()),
+                           static_cast<unsigned>(atem_initialized),
+                           static_cast<unsigned>(current_local_port),
+                           static_cast<unsigned>(consecutive_handshake_failures),
+                           static_cast<unsigned>(hello_tx_count),
+                           static_cast<unsigned>(hello_rx_count),
+                           static_cast<unsigned>(hello_close_rx_count),
+                           static_cast<unsigned>(ack_tx_count),
+                           static_cast<unsigned>(duplicate_recent));
+    if (written < 0) return 0;
+    size_t used = std::min(static_cast<size_t>(written), capacity - 1);
+    for (size_t index = 0; index < copied_event_count && used < capacity - 1; ++index) {
+        const DiagnosticEvent& event = events_copy[index];
+        written = snprintf(output + used, capacity - used, "%u %s %s\n",
+                           static_cast<unsigned>(event.time_ms), event.type, event.details);
+        if (written < 0) break;
+        if (static_cast<size_t>(written) >= capacity - used) {
+            used = capacity - 1;
+            break;
+        }
+        used += static_cast<size_t>(written);
+    }
+    output[used] = '\0';
+    return used;
+}
+
+void tally_mark_restart_pending() {
+    restart_pending.store(true);
 }
 
 void tally_refresh_outputs() {
@@ -1266,6 +1718,10 @@ void validate_stored_gpio_settings() {
 
 extern "C" void app_main(void) {
     ESP_LOGI(kTag, "Boot reset reason: %d", static_cast<int>(esp_reset_reason()));
+    if (restart_record.magic == 0x4154454D) {
+        ESP_LOGW(kTag, "Last restart reason: %s", restart_record.reason);
+        record_diagnostic_event("last_restart", restart_record.reason);
+    }
     esp_err_t nvs_result = nvs_flash_init();
     if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES || nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
